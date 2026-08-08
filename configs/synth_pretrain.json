@@ -1,0 +1,38 @@
+{
+  "model": "claude-opus-5",
+  "fallbacks": true,
+  "seed": 0,
+  "seed_domains": [
+    "computer science and programming",
+    "mathematics",
+    "physics",
+    "biology and medicine",
+    "history",
+    "economics and finance",
+    "engineering",
+    "linguistics and writing"
+  ],
+  "taxonomy": {
+    "subtopics_per_domain": 25
+  },
+  "generation": {
+    "docs_per_topic": 5,
+    "styles": ["textbook", "tutorial", "qa", "essay", "reference"],
+    "max_tokens": 4096,
+    "concurrency": 8
+  },
+  "quality": {
+    "enabled": true,
+    "min_score": 7,
+    "refine_min": 5,
+    "max_refine_rounds": 1
+  },
+  "dedup": {
+    "ngram": 13,
+    "jaccard_threshold": 0.8
+  },
+  "output": {
+    "dir": "data/synth_v0",
+    "shard_docs": 500
+  }
+}

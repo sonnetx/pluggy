@@ -30,6 +30,10 @@ implementations as the thing to test against, not the thing to depend on.
 - **fused adamw + warmup-stable-decay and warmup-cosine schedules**
 - **full checkpoint/resume** — model, optimizer, scheduler, dataloader
   position, and rng state, all restorable via `resume: null | "auto" | <step>`
+- **a synthetic data pipeline** (`pluggy/synth`) — an agentic
+  generate/judge/refine loop that writes jsonl shards the streaming
+  dataloader consumes directly, so the stack covers pretraining as a
+  service end to end: plan a corpus, generate it, filter it, train on it
 - **a from-scratch mesh + collectives layer** underneath all of the above —
   a named device mesh over the flat rank space (per-axis process groups,
   coordinates, virtual/flattened axes) and mesh-aware wrappers over every
@@ -61,6 +65,37 @@ uv run torchrun --nproc-per-node 8 -m pluggy.train.train \
     --config configs/qwen3_dense_climbmix_ddp.json --steps 20
 ```
 
+## synthetic data (pretraining as a service)
+
+`pluggy/synth` generates a pretraining corpus from scratch with an agentic
+pipeline modeled on Autodata (Chen et al., arXiv:2606.25996): a planner
+expands seed domains into a topic taxonomy, generation agents write
+documents across a topic/style/variant grid, a judge scores each document
+against a fixed rubric, borderline documents get one refinement round with
+the judge's feedback, and survivors pass through minhash near-dedup into
+sharded jsonl. the output streams into the same dataloader as hub datasets,
+so generating a corpus and training on it is two commands:
+
+```bash
+# needs the optional dep + ANTHROPIC_API_KEY in the env
+uv pip install -e ".[synth]"
+
+# 1. generate the corpus (resumable: state.json + complete-shard fencing)
+uv run -m pluggy.synth.run --config configs/synth_pretrain.json
+
+# 2. train on it (data.data_files globs the shards; no hub involved)
+uv run -m pluggy.train.train --config configs/qwen3_dense_synth.json
+```
+
+model calls default to claude-opus-5 with server-side refusal fallbacks
+enabled, so the occasional false-positive safety decline retries on a
+fallback model inside the same request instead of dropping the sample.
+everything is driven by the json config: seed domains, docs per topic,
+styles, judge thresholds, refine rounds, dedup jaccard threshold, shard
+size. the llm sits behind a two-method interface (`generate_text` /
+`generate_json`), so the orchestration is fully testable without network
+(`tests/synth.py`) and other providers are a small adapter away.
+
 ## tests
 
 no gpus needed for any of these except the last (gloo/cpu, `mp.spawn`):
@@ -71,6 +106,7 @@ uv run tests/dtensor.py --world-size 4        # placement/redistribute table
 uv run tests/dataloader_packing.py --check    # packer equality + invariants
 uv run tests/checkpointer.py                  # save/load roundtrip + prefetcher exact resume
 uv run tests/scheduler.py                     # wsd + cosine shapes, resume parity
+uv run tests/synth.py                         # synth pipeline (stubbed llm, no network)
 uv run tests/data_parallel.py --world-size 4  # ddp grad parity vs single process
 uv run tests/fsdp2.py --world-size 4          # fsdp2 parity + memory invariants
 uv run tests/grad_helper.py --world-size 2    # grad clipping vs torch reference

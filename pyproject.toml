@@ -21,6 +21,8 @@ dependencies = [
 
 [project.optional-dependencies]
 wandb = ["wandb>=0.16"]
+# synthetic data pipeline (pluggy/synth) -- the training stack never needs this
+synth = ["anthropic>=0.90"]
 
 [build-system]
 requires = ["setuptools>=61"]

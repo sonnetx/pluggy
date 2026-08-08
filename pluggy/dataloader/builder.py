@@ -54,14 +54,24 @@ def build_dataloader(data_cfg, tokenizer: Tokenizer, ignore_id: int,dp_rank: int
     # name (e.g. "en" for c4); pass None for datasets without subsets.
     # TODO: a dataset registry once per-dataset split/field quirks pile up.
 
-    # when the dataset is in json format on huggingface, this no longer 
-    # works and we'll need to change the format
-    dataset = datasets.load_dataset(
-        data_cfg["name"],
-        data_cfg.get("config"),
-        split=data_cfg.get("split", "train"),
-        streaming=True,
-    )
+    # local jsonl shards (e.g. pluggy/synth output) stream through the same
+    # path as hub datasets: pass "data_files" (glob or list) instead of "name"
+    if "data_files" in data_cfg:
+        dataset = datasets.load_dataset(
+            "json",
+            data_files=data_cfg["data_files"],
+            split=data_cfg.get("split", "train"),
+            streaming=True,
+        )
+    else:
+        # when the dataset is in json format on huggingface, this no longer
+        # works and we'll need to change the format
+        dataset = datasets.load_dataset(
+            data_cfg["name"],
+            data_cfg.get("config"),
+            split=data_cfg.get("split", "train"),
+            streaming=True,
+        )
     if dp_rank == 0:
         print(f"num shards: {dataset.num_shards}")
 
