@@ -102,9 +102,8 @@ on a pcie-only box grad sync is the whole ballgame; `notes/DDP.md` has the
 if you have uv on your machine, no need to create the conda env
 
 ```bash
-conda create -n fresh python==3.14
-conda activate fresh
 pip install uv
+uv venv
 uv pip install -e .
 ```
 ### Optional: Weights & Biases logging
