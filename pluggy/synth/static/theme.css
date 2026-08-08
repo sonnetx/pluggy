@@ -25,6 +25,11 @@
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif;
   --mono: var(--sans);
   --r: 9px;
+  /* the content column, shared by the topbar and the page beneath it so their
+   * left and right edges line up. one pair of knobs: change them here, not in
+   * per-element padding. */
+  --page-max: 1240px;
+  --gutter: 26px;
 }
 :root[data-theme="dark"] {
   --canvas: #0d0d0c;
@@ -70,10 +75,13 @@ body {
 }
 .brand b { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
 
+/* 8px horizontal on every sidebar row (brand, group label, item) so their text
+ * starts on one line, 20px in from the shell edge -- 9px here put the items a
+ * pixel off from the labels above them. */
 .side-group { font-weight: 600; font-size: 13px; color: var(--ink); margin: 16px 0 6px; padding: 0 8px; }
 .side-item {
   display: flex; align-items: center; gap: 10px;
-  padding: 8px 9px; margin-bottom: 1px; border-radius: 7px;
+  padding: 8px; margin-bottom: 1px; border-radius: 7px;
   color: var(--ink-2); text-decoration: none; font-size: 14px;
   cursor: pointer; transition: background 90ms ease, color 90ms ease;
 }
@@ -90,8 +98,13 @@ body {
 .content { display: flex; flex-direction: column; min-width: 0; }
 .topbar {
   height: 57px; flex: none; display: flex; align-items: center; gap: 9px;
-  padding: 0 22px; border-bottom: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
   background: var(--paper); position: sticky; top: 0; z-index: 20;
+  /* full-bleed bar, column-aligned contents: the border spans the whole
+   * width while the crumb and the right-hand controls sit on the same left
+   * and right edges as the cards below. below --page-max the max() collapses
+   * to a plain --gutter inset. */
+  padding: 0 max(var(--gutter), calc((100% - var(--page-max)) / 2 + var(--gutter)));
 }
 .crumb { display: flex; align-items: center; gap: 9px; min-width: 0; font-size: 14px; }
 .crumb .sep { color: var(--ink-3); }
@@ -107,7 +120,13 @@ body {
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 
 /* ================= page ================= */
-.page { padding: 26px 26px 72px; max-width: 1240px; width: 100%; }
+/* margin-inline:auto is load-bearing: .content is a column flex container, so
+ * a max-width child is left-aligned by default and every pixel of slack piles
+ * up on the right. the auto margins split it evenly instead. */
+.page {
+  padding: 26px var(--gutter) 72px;
+  max-width: var(--page-max); width: 100%; margin-inline: auto;
+}
 .page-head { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
 .page-head h1 {
   font-size: 24px; font-weight: 650; letter-spacing: -0.02em; margin: 0 0 6px;
@@ -126,7 +145,7 @@ body {
   gap: 16px; align-items: start;
 }
 @media (max-width: 1040px) { .cards { grid-template-columns: minmax(0, 1fr); } }
-.cards.single { grid-template-columns: minmax(0, 1fr); max-width: 720px; }
+.cards.single { grid-template-columns: minmax(0, 1fr); max-width: 720px; margin-inline: auto; }
 .card {
   background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r);
   box-shadow: var(--shadow); min-width: 0; scroll-margin-top: 72px;
@@ -372,6 +391,7 @@ pre.log {
 
 /* ---- narrow: sidebar collapses to a top strip ---- */
 @media (max-width: 760px) {
+  :root { --gutter: 16px; }   /* topbar and page both follow */
   .app { grid-template-columns: minmax(0, 1fr); }
   .sidebar { position: static; height: auto; flex-direction: row; align-items: center;
              gap: 4px; overflow-x: auto; padding: 8px 12px; border-right: none;
@@ -380,6 +400,5 @@ pre.log {
   .brand b { display: none; }
   .side-group, .side-item.sub, .side-foot { display: none; }
   .sidebar nav { display: flex; gap: 4px; }
-  .page { padding: 18px 16px 60px; }
-  .topbar { padding: 0 16px; }
+  .page { padding-top: 18px; padding-bottom: 60px; }
 }

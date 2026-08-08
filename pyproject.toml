@@ -23,6 +23,9 @@ dependencies = [
 wandb = ["wandb>=0.16"]
 # synthetic data pipeline (pluggy/synth) -- the training stack never needs this
 synth = ["anthropic>=0.90"]
+# tests/ui_gutters.py drives headless chrome over the devtools protocol; it
+# skips itself when this (or chrome) is missing
+dev = ["websocket-client>=1.7"]
 
 [build-system]
 requires = ["setuptools>=61"]

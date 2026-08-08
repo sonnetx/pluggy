@@ -44,7 +44,7 @@ jobs:
       - name: install (cpu torch)
         run: |
           uv venv -p 3.14
-          uv pip install --torch-backend=cpu -e .
+          uv pip install --torch-backend=cpu -e ".[dev]"
       - name: collective ops (gloo, 4 ranks)
         run: uv run --no-sync tests/collective.py --world-size 4
       - name: packing correctness
@@ -69,3 +69,7 @@ jobs:
         run: uv run --no-sync tests/synth_server.py
       - name: hf weight import (safetensors + mapping, no network)
         run: uv run --no-sync tests/hf_import.py
+      # ubuntu-latest ships chrome, so this really runs in ci; it self-skips
+      # anywhere chrome or websocket-client is missing
+      - name: ui gutters (headless chrome layout measurement)
+        run: uv run --no-sync tests/ui_gutters.py

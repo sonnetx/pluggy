@@ -177,6 +177,7 @@ uv run tests/scheduler.py                     # wsd + cosine shapes, resume pari
 uv run tests/synth.py                         # synth pipeline (stubbed llm, no network)
 uv run tests/synth_server.py                  # synth frontend api + uploads (localhost, no llm)
 uv run tests/hf_import.py                     # safetensors + hf weight mapping (no network)
+uv run tests/ui_gutters.py                    # frontend layout, measured in headless chrome
 uv run tests/data_parallel.py --world-size 4  # ddp grad parity vs single process
 uv run tests/fsdp2.py --world-size 4          # fsdp2 parity + memory invariants
 uv run tests/grad_helper.py --world-size 2    # grad clipping vs torch reference
