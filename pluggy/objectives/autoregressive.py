@@ -35,16 +35,26 @@ class ARObjective():
             # last position has no target.
             labels = torch.full_like(batch["labels"], self.ignore_index)
             labels[:, :-1] = batch["labels"][:, 1:]
-            return fused_linear_cross_entropy(
+            loss = fused_linear_cross_entropy(
                 hidden,
                 model.lm_head.weight,
                 labels,
                 self.ignore_index,
                 self.ce_chunk_size,
             )
+        else:
+            logits = model(batch["input_ids"])
+            loss = cross_entropy_loss(batch["labels"], logits, self.ignore_index)
 
-        logits = model(batch["input_ids"])
-        return cross_entropy_loss(batch["labels"], logits, self.ignore_index)
+        # optional model aux (MoE load-balance / z-loss, etc.). models that
+        # don't expose aux_loss are unchanged; models that do return None when
+        # nothing applied this step are also a no-op.
+        aux_fn = getattr(model, "aux_loss", None)
+        if callable(aux_fn):
+            aux = aux_fn()
+            if aux is not None:
+                loss = loss + aux
+        return loss
 
 if __name__ == "__main__":
     test = ARObjective()

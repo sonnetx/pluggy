@@ -43,7 +43,7 @@
         <span class="sep">/</span>
         <span class="chip">
           <svg viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 014.5 6h4l2 2.5h9A1.5 1.5 0 0121 10v8a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18z"/></svg>
-          <span id="crumb_cfg">qwen3_dense_run</span>
+          <span id="crumb_cfg">my_run</span>
         </span>
         <span class="mono-id" id="crumb_id">train</span>
       </div>
@@ -59,7 +59,7 @@
     <div class="page">
       <div class="page-head">
         <div>
-          <h1><span id="head_name">qwen3_dense_run</span>
+          <h1><span id="head_name" contenteditable="true" spellcheck="false">my_run</span>
             <span class="mono-id" id="head_params">—</span></h1>
           <div class="meta" id="head_meta"></div>
         </div>
@@ -83,29 +83,56 @@
               </div>
             </div>
             <div class="card-body">
-              <button type="button" class="selector" id="model_open">
-                <span class="body">
-                  <span class="name" id="sel_name">—</span>
-                  <span class="desc" id="sel_desc">—</span>
-                </span>
-                <span class="val" id="sel_val"></span>
-                <svg class="chev" viewBox="0 0 24 24"><path d="M8 10l4 4 4-4"/></svg>
-              </button>
+              <div class="row">
+                <div class="field">
+                  <label>Architecture</label>
+                  <button type="button" class="selector" id="arch_open">
+                    <span class="body">
+                      <span class="name" id="arch_sel_name">—</span>
+                      <span class="desc" id="arch_sel_desc"></span>
+                    </span>
+                    <span class="val" id="arch_sel_val"></span>
+                    <svg class="chev" viewBox="0 0 24 24"><path d="M8 10l4 4 4-4"/></svg>
+                  </button>
+                </div>
+                <div class="field">
+                  <label>Size</label>
+                  <button type="button" class="selector" id="size_open">
+                    <span class="body">
+                      <span class="name" id="size_sel_name">—</span>
+                      <span class="desc" id="size_sel_desc"></span>
+                    </span>
+                    <span class="val" id="size_sel_val"></span>
+                    <svg class="chev" viewBox="0 0 24 24"><path d="M8 10l4 4 4-4"/></svg>
+                  </button>
+                </div>
+              </div>
             </div>
-            <div class="cmd" id="model_note"></div>
           </div>
 
-          <div class="card" data-section="Dataset">
-            <div class="card-head"><h2>Dataset</h2>
-              <span class="note">what it reads</span>
+          <div class="card" data-section="Datasets">
+            <div class="card-head"><h2>Datasets</h2>
+              <span class="note" id="mix_note">percentages are normalized to 100%</span>
+              <div class="right">
+                <button type="button" id="data_add">Add dataset</button>
+              </div>
             </div>
             <div class="card-body flush">
-              <div class="picker" id="data_picker"></div>
+              <table class="data">
+                <thead>
+                  <tr><th>Source</th><th class="num">% of tokens</th><th></th></tr>
+                </thead>
+                <tbody id="ds_rows"></tbody>
+              </table>
             </div>
-            <div class="card-body" id="data_custom_wrap" style="display:none">
+            <div class="card-body">
               <div class="field">
-                <label for="mg_custom">Hugging Face dataset</label>
-                <input type="text" id="mg_custom" placeholder="org/dataset">
+                <label for="mg_stopping">When a source runs dry</label>
+                <select id="mg_stopping">
+                  <option value="all_exhausted" selected>all exhausted: restart the source, hold the mixture</option>
+                  <option value="first_exhausted">first exhausted: stop training when a source runs out</option>
+                  <option value="all_exhausted_without_replacement">all exhausted without replacement: drop source and continue training</option>
+                </select>
               </div>
             </div>
           </div>
@@ -114,10 +141,18 @@
             <div class="card-head"><h2>Compute</h2>
               <span class="note">rented per hour</span>
             </div>
-            <div class="card-body flush">
-              <div class="picker" id="gpu_picker"></div>
-            </div>
             <div class="card-body">
+              <div class="field">
+                <label>GPU</label>
+                <button type="button" class="selector" id="gpu_open">
+                  <span class="body">
+                    <span class="name" id="gpu_sel_name">—</span>
+                    <span class="desc" id="gpu_sel_desc"></span>
+                  </span>
+                  <span class="val" id="gpu_sel_val"></span>
+                  <svg class="chev" viewBox="0 0 24 24"><path d="M8 10l4 4 4-4"/></svg>
+                </button>
+              </div>
               <div class="row">
                 <div class="field">
                   <label for="mg_count">GPUs</label>
@@ -130,10 +165,6 @@
                   <label for="mg_hours">Rent for (hours)</label>
                   <input type="number" id="mg_hours" min="1" step="1" value="24">
                 </div>
-              </div>
-              <div class="field">
-                <label for="mg_name">Run name</label>
-                <input type="text" id="mg_name" value="qwen3_dense_run">
               </div>
             </div>
           </div>
@@ -402,7 +433,7 @@
               <div class="row">
                 <div class="field">
                   <label for="r_name">Run name</label>
-                  <input type="text" id="r_name" value="qwen3_dense_run">
+                  <input type="text" id="r_name" value="my_run">
                 </div>
                 <div class="field">
                   <label for="r_seed">Seed</label>
@@ -412,7 +443,7 @@
               <div class="row">
                 <div class="field">
                   <label for="cfg_name">Config name</label>
-                  <input type="text" id="cfg_name" value="qwen3_dense_run">
+                  <input type="text" id="cfg_name" value="my_run">
                 </div>
                 <div class="field">
                   <label for="r_project">wandb project</label>
@@ -464,33 +495,18 @@
   </div>
 </div>
 
-<dialog class="modal" id="model_modal">
+<dialog class="modal" id="pick_modal">
   <div class="modal-head">
-    <h2>Select model</h2>
-    <span class="note">architecture, then size</span>
+    <h2 id="pick_title">Select</h2>
+    <span class="note" id="pick_note"></span>
     <div class="right">
-      <button type="button" class="icon" id="modal_x" aria-label="Close">
+      <button type="button" class="icon" id="pick_x" aria-label="Close">
         <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
   </div>
   <div class="modal-body">
-    <div class="split">
-      <div class="pane">
-        <div class="pane-head">Architecture</div>
-        <div class="picker" id="arch_picker"></div>
-      </div>
-      <div class="pane">
-        <div class="pane-head">Size <span class="right" id="size_head">—</span></div>
-        <div class="picker" id="size_picker"></div>
-      </div>
-    </div>
-  </div>
-  <div class="modal-foot">
-    <span id="modal_hint">Pick a size to confirm.</span>
-    <div class="right">
-      <button type="button" id="modal_cancel">Cancel</button>
-    </div>
+    <div class="picker" id="pick_list"></div>
   </div>
 </dialog>
 
@@ -514,22 +530,21 @@ const money = n => "$" + n.toLocaleString("en-US", { maximumFractionDigits: 0 })
  * multi-gpu ddp scaling point from the same table. prices are indicative
  * rental rates, not a real quote.
  */
-/* architectures and their sizes.
+/* architectures and their sizes -- keep in step with MODEL_REGISTRY in
+ * pluggy/models/builder.py.
  *
- * to add an arch: append an entry here with `registered` matching whether it
- * is live in pluggy/models/builder.py's MODEL_REGISTRY, and give it sizes.
- * `origin` labels where a size's dims came from -- an upstream config name,
- * or "pluggy" for ones derived here (see the smart-config note below).
+ * to add an arch: append an entry with its vocab, tokenizer, and whether it
+ * ties lm_head to the token embedding (qwen3 does, llama3 and olmo3 keep a
+ * separate lm_head), then list sizes. `origin` labels where a size's dims
+ * came from -- an upstream config name, or "pluggy" for ones derived here.
  *
- * sizes marked with an upstream `origin` are that model's published config
- * verbatim; all of them tie lm_head to the token embedding, which is what
- * pluggy's model classes do, so the computed param counts match what would
- * actually be built.
+ * size *names* are the computed param count under this repo's implementation,
+ * which is why llama reads 1.5B where the tied HF checkpoint is 1.24B (see
+ * pluggy/models/llama3/llama3.py:273).
  */
 const ARCHS = [
   {
-    id: "qwen3_dense", name: "Qwen3 Dense", registered: true,
-    desc: "GQA · SwiGLU · RMSNorm · tied emb",
+    id: "qwen3_dense", name: "Qwen3 Dense", tied: true,
     vocab: 151936, tokenizer: "Qwen/Qwen3-0.6B",
     sizes: [
       // scaled down from 0.6B on qwen3's own ratios (ffn ~2.7x emb, 4:1 gqa)
@@ -538,25 +553,65 @@ const ARCHS = [
       { id: "q-0.6b", name: "0.6B", origin: "Qwen3-0.6B", layers: 28, heads: 16, kv: 8, hd: 128, emb: 1024, ffn: 3072 },
       { id: "q-1.7b", name: "1.7B", origin: "Qwen3-1.7B", layers: 28, heads: 16, kv: 8, hd: 128, emb: 2048, ffn: 6144 },
       { id: "q-4b", name: "4B", origin: "Qwen3-4B", layers: 36, heads: 32, kv: 8, hd: 128, emb: 2560, ffn: 9728 },
+      { id: "q-7.6b", name: "7.6B", origin: "Qwen3-8B", layers: 36, heads: 32, kv: 8, hd: 128, emb: 4096, ffn: 12288 },
+      { id: "q-14b", name: "14B", origin: "Qwen3-14B", layers: 40, heads: 40, kv: 8, hd: 128, emb: 5120, ffn: 17408 },
     ],
   },
   {
-    id: "llama3_2", name: "Llama 3.2", registered: false,
-    desc: "GQA · SwiGLU · RMSNorm · tied emb",
+    id: "llama3_2", name: "Llama 3.2", tied: false,
     vocab: 128256, tokenizer: "meta-llama/Llama-3.2-1B",
     sizes: [
-      // llama 3.2 only ships 1B and 3B text models, so the two small configs
-      // are interpolated down on its ratios (ffn 4x emb, head_dim 64)
-      { id: "l-200m", name: "200M", origin: "pluggy", layers: 12, heads: 12, kv: 4, hd: 64, emb: 768, ffn: 3072 },
-      { id: "l-540m", name: "540M", origin: "pluggy", layers: 16, heads: 20, kv: 4, hd: 64, emb: 1280, ffn: 5120 },
-      { id: "l-1b", name: "1B", origin: "Llama-3.2-1B", layers: 16, heads: 32, kv: 8, hd: 64, emb: 2048, ffn: 8192 },
-      { id: "l-3b", name: "3B", origin: "Llama-3.2-3B", layers: 28, heads: 24, kv: 8, hd: 128, emb: 3072, ffn: 8192 },
+      // llama 3.2 only ships 1B and 3B text models, so the small end is
+      // interpolated down on its ratios (ffn 4x emb, head_dim 64)
+      { id: "l-300m", name: "300M", origin: "pluggy", layers: 12, heads: 12, kv: 4, hd: 64, emb: 768, ffn: 3072 },
+      { id: "l-700m", name: "700M", origin: "pluggy", layers: 16, heads: 20, kv: 4, hd: 64, emb: 1280, ffn: 5120 },
+      { id: "l-1.5b", name: "1.5B", origin: "Llama-3.2-1B", layers: 16, heads: 32, kv: 8, hd: 64, emb: 2048, ffn: 8192 },
+      { id: "l-2.5b", name: "2.5B", origin: "pluggy", layers: 24, heads: 20, kv: 4, hd: 128, emb: 2560, ffn: 8192 },
+      { id: "l-3.6b", name: "3.6B", origin: "Llama-3.2-3B", layers: 28, heads: 24, kv: 8, hd: 128, emb: 3072, ffn: 8192 },
+      { id: "l-8b", name: "8B", origin: "Llama-3.1-8B", layers: 32, heads: 32, kv: 8, hd: 128, emb: 4096, ffn: 14336 },
+    ],
+  },
+  {
+    id: "olmo3", name: "Olmo 3", tied: false,
+    vocab: 100278, tokenizer: "allenai/OLMo-3-7B",
+    sizes: [
+      // olmo 3 ships 7B and 32B; the small end is derived on its ratios (mha,
+      // ffn ~2.7x emb). 1.5B is the construct-and-count shape from
+      // pluggy/models/olmo3/olmo3.py's __main__ scaffold.
+      { id: "o-270m", name: "270M", origin: "pluggy", layers: 12, heads: 12, kv: 12, hd: 64, emb: 768, ffn: 3072 },
+      { id: "o-470m", name: "470M", origin: "pluggy", layers: 16, heads: 16, kv: 16, hd: 64, emb: 1024, ffn: 4096 },
+      { id: "o-1.5b", name: "1.5B", origin: "pluggy", layers: 16, heads: 16, kv: 16, hd: 128, emb: 2048, ffn: 8192 },
+      { id: "o-3b", name: "3B", origin: "pluggy", layers: 24, heads: 20, kv: 20, hd: 128, emb: 2560, ffn: 10240 },
+      { id: "o-7.3b", name: "7.3B", origin: "Olmo-3-7B", layers: 32, heads: 32, kv: 32, hd: 128, emb: 4096, ffn: 11008 },
+    ],
+  },
+  {
+    // gemma 4 splits head_dim by layer type: sliding layers use `hd`, the
+    // full-attention layers use `ghd`, one in every `pattern` layers
+    // (Gemma4's defaults: 256 / 512, 5:1). see pluggy/models/gemma4/gemma4.py.
+    id: "gemma4", name: "Gemma 4", tied: true,
+    vocab: 262144, tokenizer: "google/gemma-4-1b-pt",
+    ghd: 512, pattern: 6,
+    sizes: [
+      { id: "g-270m", name: "270M", origin: "pluggy", layers: 18, heads: 4, kv: 1, hd: 256, emb: 640, ffn: 2048 },
+      { id: "g-1b", name: "1B", origin: "pluggy", layers: 26, heads: 4, kv: 1, hd: 256, emb: 1152, ffn: 6912 },
+      { id: "g-2b", name: "2B", origin: "pluggy", layers: 35, heads: 8, kv: 2, hd: 256, emb: 1536, ffn: 8192 },
+      { id: "g-4b", name: "4B", origin: "pluggy", layers: 34, heads: 8, kv: 4, hd: 256, emb: 2560, ffn: 10240 },
+      { id: "g-12b", name: "12B", origin: "pluggy", layers: 48, heads: 16, kv: 8, hd: 256, emb: 3840, ffn: 15360 },
     ],
   },
 ];
+/* pluggy mixes datasets natively via data.sources.
+ * The UI now lets you directly set the desired % of training tokens per source.
+ * These are normalized to sum to 100% and converted to relative weights for the
+ * dataloader (see pluggy/dataloader/builder.py). */
 const DATASETS = [
   { id: "climbmix", name: "ClimbMix", hf: "OptimalScale/ClimbMix",
     desc: "general web pretraining mix", val: "~400B tokens" },
+  { id: "fineweb", name: "FineWeb-Edu", hf: "HuggingFaceFW/fineweb-edu", config: "sample-10BT",
+    desc: "filtered educational web text", val: "10B sample" },
+  { id: "openwebmath", name: "OpenWebMath", hf: "open-web-math/open-web-math",
+    desc: "mathematical web pages", val: "~15B tokens" },
   { id: "synth", name: "Your synth corpus", hf: "data/synth_v0/shard-*.jsonl",
     desc: "shards from the data generation page", val: "local" },
   { id: "custom", name: "Custom", hf: "", desc: "any hugging face dataset", val: "—" },
@@ -568,22 +623,54 @@ const GPUS = [
 ];
 const REF_PARAMS = 5.74e8;   // the 0.6B model those tps figures were measured on
 
-let picked = { arch: ARCHS[0], size: ARCHS[0].sizes[1], data: DATASETS[0], gpu: GPUS[2] };
+let picked = {
+  arch: ARCHS[0],
+  size: ARCHS[0].sizes[1],
+  // a mixture, even when it has one member -- matches data.sources
+  datasets: [{ ...DATASETS[0], percent: 100 }],
+  gpu: GPUS[2],
+};
 
 /* ---------- shared math ---------- */
 function ffnOf(emb, explicit) {
   return explicit || 256 * Math.ceil(Math.floor(8 * emb / 3) / 256);
 }
-function paramsOf(m, vocab) {
+/* `tied` decides whether lm_head is a second vocab x emb matrix or shares the
+ * token embedding -- worth ~0.4B on a llama 1B, so it is not a rounding
+ * detail. qwen3 ties; llama3 and olmo3 do not. */
+// q/k/v/o for one attention layer at a given head_dim
+const attnOf = (emb, heads, kv, hd) =>
+  emb * heads * hd + 2 * emb * kv * hd + heads * hd * emb;
+
+/* `tied` decides whether lm_head is a second vocab x emb matrix or shares the
+ * token embedding -- worth ~0.4B on a llama 1B, so it is not a rounding
+ * detail. qwen3 ties; llama3 and olmo3 do not.
+ *
+ * `arch.ghd`/`arch.pattern` cover gemma 4's split head_dim: one layer in
+ * every `pattern` is full attention at `ghd`, the rest are sliding at `hd`.
+ * archs without them are uniform and take the simple path.
+ */
+function paramsOf(m, vocab, tied, arch) {
   const V = vocab === undefined ? m.vocab : vocab;
   const ffn = ffnOf(m.emb, m.ffn);
-  const attn = m.emb * m.heads * m.hd + 2 * m.emb * m.kv * m.hd + m.heads * m.hd * m.emb;
   const mlp = 3 * m.emb * ffn;
   const norms = 2 * m.emb + 2 * m.hd;   // pre-attn/pre-mlp rmsnorm + q/k norm
-  return { nonEmbed: m.layers * (attn + mlp + norms) + m.emb, embed: V * m.emb };
+
+  let attnTotal;
+  if (arch && arch.ghd && arch.pattern) {
+    const full = Math.max(1, Math.round(m.layers / arch.pattern));
+    attnTotal = (m.layers - full) * attnOf(m.emb, m.heads, m.kv, m.hd)
+              + full * attnOf(m.emb, m.heads, m.kv, arch.ghd);
+  } else {
+    attnTotal = m.layers * attnOf(m.emb, m.heads, m.kv, m.hd);
+  }
+  return {
+    nonEmbed: attnTotal + m.layers * (mlp + norms) + m.emb,
+    embed: V * m.emb * (tied ? 1 : 2),
+  };
 }
-const totalOf = (m, vocab) => {
-  const p = paramsOf(m, vocab);
+const totalOf = (m, vocab, tied, arch) => {
+  const p = paramsOf(m, vocab, tied, arch);
   return p.nonEmbed + p.embed;
 };
 // linear in gpu count between the 1-gpu ideal and the measured scaling point
@@ -603,7 +690,7 @@ function renderPicker(host, rows, group, currentId, onSelect) {
       <input type="radio" name="${group}" value="${r.id}"
         ${r.id === currentId ? " checked" : ""}${r.disabled ? " disabled" : ""}>
       <span class="body"><span class="name">${r.name}</span>
-        <span class="desc">${r.desc}</span></span>
+        ${r.desc ? `<span class="desc">${r.desc}</span>` : ""}</span>
       <span class="val">${r.val}</span>
     </label>`).join("");
   host.querySelectorAll("input").forEach(input => {
@@ -618,10 +705,8 @@ function renderPicker(host, rows, group, currentId, onSelect) {
 function archRows() {
   return ARCHS.map(a => ({
     id: a.id,
-    name: a.name + (a.registered ? "" : ' <span class="tag">stub</span>'),
-    desc: a.desc,
+    name: a.name,
     val: `${a.sizes.length} sizes<small>vocab ${compact(a.vocab)}</small>`,
-    disabled: false,   // selectable so its sizes are browsable; launch is gated
   }));
 }
 
@@ -630,82 +715,167 @@ function sizeRows(arch) {
     id: s.id,
     name: s.name,
     desc: `${s.layers}L · ${s.emb}d · ${s.heads}/${s.kv} heads · ffn ${s.ffn}`,
-    val: `${compact(totalOf(s, arch.vocab))}<small>${
+    val: `${compact(totalOf(s, arch.vocab, arch.tied, arch))}<small>${
       s.origin === "pluggy" ? "derived config" : s.origin}</small>`,
   }));
 }
 
-/* ---------- model modal ----------
- * selections are staged in `pending` and only committed when a size is
- * clicked, so cancelling (or Esc) leaves `picked` untouched.
+/* ---------- popup picker ----------
+ * one dialog serves every selector: nothing is listed on the page, each
+ * choice opens its own list. picking commits immediately and closes.
  */
-let pending = null;
-
-function renderPendingSizes() {
-  renderPicker($("size_picker"), sizeRows(pending.arch), "size", pending.size.id, id => {
-    pending.size = pending.arch.sizes.find(s => s.id === id);
-    picked.arch = pending.arch;
-    picked.size = pending.size;
-    $("model_modal").close();
-    managed();
+function openPicker(title, note, rows, currentId, onPick) {
+  $("pick_title").textContent = title;
+  $("pick_note").textContent = note || "";
+  renderPicker($("pick_list"), rows, "pick", currentId, id => {
+    $("pick_modal").close();
+    onPick(id);
   });
-  $("size_head").textContent = pending.arch.name;
+  $("pick_modal").showModal();
 }
 
-function renderPendingArchs() {
-  renderPicker($("arch_picker"), archRows(), "arch", pending.arch.id, id => {
-    pending.arch = ARCHS.find(a => a.id === id);
-    // default to the smallest upstream config, else the smallest overall
-    pending.size = pending.arch.sizes.find(s => s.origin !== "pluggy") || pending.arch.sizes[0];
-    renderPendingSizes();
+/* rows offered by "Add dataset" -- already-added sources are disabled, except
+ * Custom which can be added repeatedly with different paths */
+function dataRows() {
+  const taken = new Set(picked.datasets.map(d => d.id));
+  return DATASETS.map(d => ({
+    id: d.id, name: d.name, desc: d.desc,
+    val: `${d.val}<small>${d.hf || "your choice"}</small>`,
+    disabled: d.id !== "custom" && taken.has(d.id),
+  }));
+}
+
+const percentTotal = () =>
+  picked.datasets.reduce((s, d) => s + (+d.percent || 0), 0);
+
+const TRASH = '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6'
+  + 'M5 7l1 12.5a1.5 1.5 0 001.5 1.5h9a1.5 1.5 0 001.5-1.5L19 7M9 7V4.5'
+  + 'A1.5 1.5 0 0110.5 3h3A1.5 1.5 0 0115 4.5V7"/></svg>';
+
+function renderDatasets() {
+  const total = percentTotal();
+  const single = picked.datasets.length === 1;
+  $("ds_rows").innerHTML = picked.datasets.map((d, i) => {
+    const pct = (+d.percent || 0);
+    const source = d.id === "custom"
+      ? `<input type="text" class="ds-hf" data-i="${i}" placeholder="org/dataset"
+           value="${(d.hf || "").replace(/"/g, "&quot;")}">`
+      : `<small>${d.hf}${d.config ? " · " + d.config : ""}</small>`;
+    return `<tr>
+      <td class="key">${d.name}${source}</td>
+      <td class="num"><input type="number" class="ds-w" data-i="${i}" min="0" max="100" step="1"
+        value="${pct}"></td>
+      <td class="num"><button type="button" class="icon ds-x" data-i="${i}"
+        aria-label="Remove ${d.name}"${single ? " disabled" : ""}>${TRASH}</button></td>
+    </tr>`;
+  }).join("");
+
+  // note: these only mutate state and refresh derived cells -- they must NOT
+  // rebuild the table, or the input being typed into loses focus mid-keystroke
+  $("ds_rows").querySelectorAll(".ds-w").forEach(el => {
+    el.oninput = () => {
+      picked.datasets[+el.dataset.i].percent = Math.max(0, Math.min(100, +el.value || 0));
+      managed();
+    };
   });
+  $("ds_rows").querySelectorAll(".ds-hf").forEach(el => {
+    el.oninput = () => { picked.datasets[+el.dataset.i].hf = el.value; managed(); };
+  });
+  $("ds_rows").querySelectorAll(".ds-x").forEach(el => {
+    el.onclick = () => {
+      if (picked.datasets.length === 1) return;   // never leave the mix empty
+      picked.datasets.splice(+el.dataset.i, 1);
+      renderDatasets();
+      managed();
+    };
+  });
+  refreshShares();
 }
 
-function openModal() {
-  pending = { arch: picked.arch, size: picked.size };
-  renderPendingArchs();
-  renderPendingSizes();
-  $("model_modal").showModal();
+/* derived-only pass: safe to call while a percent input has focus */
+function refreshShares() {
+  const total = percentTotal();
+  const n = picked.datasets.length;
+  $("mix_note").textContent = total <= 0
+    ? "percentages must sum to something positive"
+    : n === 1 ? "single source"
+    : `${n} sources — ${total.toFixed(0)}% total`;
 }
 
-function renderSelector() {
-  const arch = picked.arch, m = picked.size;
-  $("sel_name").innerHTML = `${arch.name} · ${m.name}` +
-    (arch.registered ? "" : ' <span class="tag">stub</span>');
-  $("sel_desc").textContent =
-    `${m.layers}L · ${m.emb}d · ${m.heads}/${m.kv} heads · ffn ${m.ffn} · vocab ${arch.vocab}`;
-  $("sel_val").innerHTML = `${compact(totalOf(m, arch.vocab))}<small>${
-    m.origin === "pluggy" ? "derived config" : m.origin}</small>`;
+function gpuRows() {
+  return GPUS.map(g => ({
+    id: g.id, name: g.name, desc: `${g.vram} GB vram`,
+    val: `${money(g.price)}/hr<small>${compact(g.tps)} tok/s single-gpu</small>`,
+  }));
+}
+
+function fillSelector(prefix, row) {
+  $(prefix + "_sel_name").textContent = row.name;
+  $(prefix + "_sel_desc").textContent = row.desc || "";
+  $(prefix + "_sel_val").innerHTML = row.val || "";
+}
+
+function renderSelectors() {
+  const arch = picked.arch, m = picked.size, g = picked.gpu;
+  fillSelector("arch", {
+    name: arch.name,
+    desc: `${arch.sizes.length} sizes · vocab ${compact(arch.vocab)}`,
+  });
+  fillSelector("size", {
+    name: m.name,
+    desc: `${m.layers}L · ${m.emb}d · ${m.heads}/${m.kv} heads · ffn ${m.ffn}`,
+    val: `${compact(totalOf(m, arch.vocab, arch.tied, arch))}<small>${
+      m.origin === "pluggy" ? "derived config" : m.origin}</small>`,
+  });
+  fillSelector("gpu", {
+    name: g.name,
+    desc: `${g.vram} GB vram · ${compact(g.tps)} tok/s single-gpu`,
+    val: `${money(g.price)}/hr`,
+  });
 }
 
 function initPickers() {
-  renderPicker($("data_picker"), DATASETS.map(d => ({
-    id: d.id, name: d.name, desc: d.desc,
-    val: `${d.val}<small>${d.hf || "your choice"}</small>`,
-  })), "data", picked.data.id, id => {
-    picked.data = DATASETS.find(d => d.id === id);
-    $("data_custom_wrap").style.display = id === "custom" ? "" : "none";
-    managed();
-  });
-  renderPicker($("gpu_picker"), GPUS.map(g => ({
-    id: g.id, name: g.name, desc: `${g.vram} GB vram`,
-    val: `${money(g.price)}/hr<small>${compact(g.tps)} tok/s single-gpu</small>`,
-  })), "gpu", picked.gpu.id, id => {
-    picked.gpu = GPUS.find(x => x.id === id);
-    managed();
-  });
+  $("arch_open").onclick = () =>
+    openPicker("Architecture", "from MODEL_REGISTRY", archRows(), picked.arch.id, id => {
+      picked.arch = ARCHS.find(a => a.id === id);
+      // default to the smallest upstream config, else the smallest overall
+      picked.size = picked.arch.sizes.find(s => s.origin !== "pluggy") || picked.arch.sizes[0];
+      managed();
+    });
+
+  $("size_open").onclick = () =>
+    openPicker("Size", picked.arch.name, sizeRows(picked.arch), picked.size.id, id => {
+      picked.size = picked.arch.sizes.find(s => s.id === id);
+      managed();
+    });
+
+  $("data_add").onclick = () =>
+    openPicker("Add dataset", "mixed by percentage of tokens", dataRows(), null, id => {
+      const src = DATASETS.find(d => d.id === id);
+      // a new source joins at equal share of the current total
+      const n = picked.datasets.length;
+      const avg = n ? Math.round(100 / n) : 100;
+      picked.datasets.push({ ...src, percent: avg });
+      renderDatasets();
+      managed();
+    });
+
+  $("gpu_open").onclick = () =>
+    openPicker("GPU", "rented per hour", gpuRows(), picked.gpu.id, id => {
+      picked.gpu = GPUS.find(x => x.id === id);
+      managed();
+    });
 
   // expert's arch select is driven by the same catalogue
   $("m_name").innerHTML = ARCHS.map(a =>
-    `<option value="${a.id}"${a.registered ? "" : " disabled"}>${a.name}` +
-    `${a.registered ? "" : " — unregistered"}</option>`).join("");
+    `<option value="${a.id}">${a.name}</option>`).join("");
 }
 
 /* ---------- managed estimate ---------- */
 function managed() {
   const arch = picked.arch, m = picked.size, gpu = picked.gpu;
   const n = num("mg_count"), hours = Math.max(0, num("mg_hours"));
-  const total = totalOf(m, arch.vocab);
+  const total = totalOf(m, arch.vocab, arch.tied, arch);
 
   // measured tps scaled by compute per token (~linear in params), then by
   // the ddp scaling efficiency at this gpu count
@@ -735,28 +905,18 @@ function managed() {
     `qwen3 0.6B, scaled by parameter count and by ddp scaling efficiency — a projection, ` +
     `not a guarantee. rental prices are indicative.`;
 
-  renderSelector();
-  $("model_note").innerHTML = arch.registered
-    ? `<b>${arch.name} ${m.name}</b> · tokenizer <b>${arch.tokenizer}</b> · ` +
-      (m.origin === "pluggy"
-        ? "dims derived here on this arch's own ratios — no upstream config this small"
-        : `dims from <b>${m.origin}</b>`) +
-      `. weights are randomly initialised; pluggy pretrains, it does not fine-tune.`
-    : `<b>${arch.name}</b> is not in MODEL_REGISTRY yet — ` +
-      `pluggy/models/builder.py maps it to None, so a run would fail at build_model. ` +
-      `sizes are browsable, launching is disabled.`;
-
-  const launchable = arch.registered;
-  $("launch").disabled = !launchable;
-
-  $("head_name").textContent = $("mg_name").value || "untitled";
-  $("crumb_cfg").textContent = $("mg_name").value || "untitled";
+  renderSelectors();
+  refreshShares();
+  // Run name is edited by clicking the big title at the top of the page
+  const runName = $("head_name").textContent.trim() || "untitled";
+  $("crumb_cfg").textContent = runName;
   $("head_params").textContent = compact(total) + " params";
   $("head_meta").innerHTML =
     `<span>${arch.name} ${m.name}</span><span class="sep">·</span>` +
     `<span>${n}× ${gpu.name}</span><span class="sep">·</span>` +
-    `<span>${picked.data.id === "custom" ? ($("mg_custom").value || "custom dataset")
-                                          : picked.data.hf}</span>`;
+    `<span>${picked.datasets.length === 1
+      ? (picked.datasets[0].hf || picked.datasets[0].name)
+      : picked.datasets.length + " datasets"}</span>`;
 }
 
 /* copy the managed selection into the expert fields, then switch */
@@ -771,13 +931,21 @@ function openInExpert() {
   $("m_vocab").value = arch.vocab;
   $("m_name").value = arch.id;
   $("d_tok").value = arch.tokenizer;
-  if (picked.data.hf) $("d_name").value = picked.data.hf;
+  // expert's Data card edits a single source; carry the heaviest one over and
+  // say so, rather than silently dropping the rest of the mixture
+  const heaviest = picked.datasets.reduce((a, b) => ((+b.percent || 0) > (+a.percent || 0) ? b : a));
+  if (heaviest.hf) $("d_name").value = heaviest.hf;
   $("p_dp").value = num("mg_count");
-  $("r_name").value = $("mg_name").value;
-  $("cfg_name").value = $("mg_name").value;
+  const name = $("head_name").textContent.trim() || "untitled";
+  $("r_name").value = name;
+  $("cfg_name").value = name;
   document.querySelectorAll("#mode_seg button").forEach(b =>
     b.setAttribute("aria-pressed", String(b.dataset.val === "expert")));
   setMode("expert");
+  if (picked.datasets.length > 1) {
+    msg(`carried over ${heaviest.name} only — a ${picked.datasets.length}-source mix `
+      + `needs data.sources in the json`, false);
+  }
 }
 
 /* ---------- expert ---------- */
@@ -790,7 +958,8 @@ function expert() {
   const m = { layers: num("m_layers"), heads: num("m_heads"), kv: num("m_kv_heads"),
               hd: num("m_head_dim"), emb: num("m_emb"), vocab: num("m_vocab"),
               ffn: +$("m_ffn").value.trim() || null };
-  const { nonEmbed, embed } = paramsOf(m);
+  const arch = ARCHS.find(a => a.id === $("m_name").value) || ARCHS[0];
+  const { nonEmbed, embed } = paramsOf(m, undefined, arch.tied, arch);
   const total = nonEmbed + embed;
   const dp = Math.max(1, num("p_dp"));
   const gbs = num("d_gbs"), mbs = num("d_mbs"), seq = num("d_seq");
@@ -804,7 +973,8 @@ function expert() {
   const rows = [
     ["Parameters", compact(total), "Tokens / step", compact(tokensPerStep)],
     ["Non-embedding", compact(nonEmbed), "Total tokens", compact(tokensPerStep * num("s_steps"))],
-    ["Embedding <small>tied lm_head</small>", compact(embed), "FFN dim", compact(ffnOf(m.emb, m.ffn))],
+    [`Embedding <small>${arch.tied ? "lm_head tied to token_emb" : "plus a separate lm_head"}</small>`,
+     compact(embed), "FFN dim", compact(ffnOf(m.emb, m.ffn))],
     ["Optimizer state <small>adamw moments, fp32</small>", compact(optBytes) + "B",
      "Grad accum", badAccum ? "INVALID" : String(accum)],
   ];
@@ -834,8 +1004,10 @@ function expert() {
     ? `warmup ${warm} · stable · decay ${Math.round(steps * (parseFloat($("s_decay").value) || 0))} steps`
     : `warmup ${warm} steps, then cosine to zero over the remainder`;
 
-  $("head_name").textContent = $("r_name").value || "untitled";
-  $("crumb_cfg").textContent = $("cfg_name").value || "untitled";
+  const runName = $("r_name").value.trim() || "untitled";
+  const configName = $("cfg_name").value.trim() || runName;
+  $("head_name").textContent = runName;
+  $("crumb_cfg").textContent = configName;
   $("head_params").textContent = compact(total) + " params";
   $("head_meta").innerHTML =
     `<span>${$("m_name").value}</span><span class="sep">·</span>` +
@@ -857,8 +1029,6 @@ function setMode(next) {
   $("bench").style.display = managedOn ? "none" : "";
   $("save").style.display = managedOn ? "none" : "";
   $("launch").textContent = managedOn ? "Rent GPUs + launch" : "Launch run";
-  // managed() re-gates this on the arch being registered; expert always allows
-  if (!managedOn) $("launch").disabled = false;
   try { localStorage.setItem("pluggy-train-mode", next); } catch (e) { /* session-only */ }
   refresh();
   if (window.pluggyUI) window.pluggyUI.rebuildSectionNav();
@@ -882,18 +1052,33 @@ function msg(text, ok) {
 const notWired = () => msg("not wired up yet — ui only", false);
 ["launch", "save", "bench", "stop"].forEach(id => $(id).onclick = notWired);
 $("to_expert").onclick = openInExpert;
-$("model_open").onclick = openModal;
-$("modal_x").onclick = () => $("model_modal").close();
-$("modal_cancel").onclick = () => $("model_modal").close();
+$("pick_x").onclick = () => $("pick_modal").close();
 // click on the backdrop (i.e. outside the panel) dismisses too
-$("model_modal").onclick = e => { if (e.target === $("model_modal")) $("model_modal").close(); };
+$("pick_modal").onclick = e => { if (e.target === $("pick_modal")) $("pick_modal").close(); };
 
 document.querySelectorAll("input, select").forEach(el => {
   el.addEventListener("input", refresh);
   el.addEventListener("change", refresh);
 });
 
+// Make the top run name editable and update UI when changed
+const nameEl = $("head_name");
+nameEl.addEventListener("input", () => {
+  refresh();
+});
+nameEl.addEventListener("blur", () => {
+  if (!nameEl.textContent.trim()) nameEl.textContent = "untitled";
+  refresh();
+});
+nameEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    nameEl.blur();
+  }
+});
+
 initPickers();
+renderDatasets();
 let saved = "managed";
 try { saved = localStorage.getItem("pluggy-train-mode") || "managed"; } catch (e) { /* default */ }
 document.querySelectorAll("#mode_seg button").forEach(b =>

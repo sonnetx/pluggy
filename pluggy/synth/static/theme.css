@@ -23,7 +23,7 @@
   --active: rgba(22, 22, 20, 0.075);
   --shadow: 0 1px 2px rgba(22, 22, 20, 0.04);
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif;
-  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --mono: var(--sans);
   --r: 9px;
 }
 :root[data-theme="dark"] {
@@ -60,13 +60,13 @@ body {
   height: 57px; padding: 0 8px; margin-bottom: 10px;
   color: var(--ink); text-decoration: none; flex: none;
 }
+/* plug mark, drawn as a mask so it takes --ink and flips with the theme.
+ * source: SVG Repo, CC0 -- https://www.svgrepo.com/svg/83473/plug */
 .brand .mark {
-  width: 22px; height: 22px; border: 1.5px solid var(--ink); border-radius: 50%;
-  position: relative; flex: none;
-}
-.brand .mark::after {
-  content: ""; position: absolute; inset: 3px 3px 3px 8px;
-  border: 1.5px solid var(--ink); border-radius: 50%;
+  width: 21px; height: 21px; flex: none;
+  background-color: var(--ink);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath d='m495,17c-8-8-20.9-8-28.9,0l-39.9,39.9c-16.8-11.2-36.4-17.2-57-17.2-27.5,0-53.4,10.7-72.9,30.2l-58.4,58.4c-8,8-8,20.9 0,28.9l116.9,116.9c12.5,11.3 25,3.8 28.9,0l58.4-58.4c35.2-35.2 39.6-89.9 13-129.9l39.9-39.9c8-8 8-20.9 0-28.9zm-81.8,169.8l-44,44-88-88 44-44c11.8-11.8 27.4-18.2 44-18.2 16.6,0 32.3,6.5 44,18.2 24.3,24.2 24.3,63.7 0,88z'/%3E%3Cpath d='m268.9,274.5l-37.6,37.5-31.3-31.4 37.5-37.5c8-8 8-20.9 0-28.9-8-8-20.9-8-28.9,0l-37.5,37.5-13.9-13.9c-3.8-3.8-16.1-11.2-28.9,0l-58.4,58.4c-35.2,35.2-39.6,89.9-13,129.9l-39.9,40c-8,8-8,20.9 0,28.9 8,8 20.9,8 28.9,0l39.9-39.9c16.8,11.2 36.4,17.2 57,17.2 27.5,0 53.4-10.7 72.9-30.2l58.4-58.4c8-8 8-20.9 0-28.9l-13.9-13.9 37.5-37.5c8-8 8-20.9 0-28.9-7.9-8-20.9-8-28.8,0zm-82.1,138.7c-11.8,11.8-27.4,18.2-44,18.2s-32.3-6.5-44-18.2c-24.3-24.3-24.3-63.8 0-88l44-44 88,88-44,44z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath d='m495,17c-8-8-20.9-8-28.9,0l-39.9,39.9c-16.8-11.2-36.4-17.2-57-17.2-27.5,0-53.4,10.7-72.9,30.2l-58.4,58.4c-8,8-8,20.9 0,28.9l116.9,116.9c12.5,11.3 25,3.8 28.9,0l58.4-58.4c35.2-35.2 39.6-89.9 13-129.9l39.9-39.9c8-8 8-20.9 0-28.9zm-81.8,169.8l-44,44-88-88 44-44c11.8-11.8 27.4-18.2 44-18.2 16.6,0 32.3,6.5 44,18.2 24.3,24.2 24.3,63.7 0,88z'/%3E%3Cpath d='m268.9,274.5l-37.6,37.5-31.3-31.4 37.5-37.5c8-8 8-20.9 0-28.9-8-8-20.9-8-28.9,0l-37.5,37.5-13.9-13.9c-3.8-3.8-16.1-11.2-28.9,0l-58.4,58.4c-35.2,35.2-39.6,89.9-13,129.9l-39.9,40c-8,8-8,20.9 0,28.9 8,8 20.9,8 28.9,0l39.9-39.9c16.8,11.2 36.4,17.2 57,17.2 27.5,0 53.4-10.7 72.9-30.2l58.4-58.4c8-8 8-20.9 0-28.9l-13.9-13.9 37.5-37.5c8-8 8-20.9 0-28.9-7.9-8-20.9-8-28.8,0zm-82.1,138.7c-11.8,11.8-27.4,18.2-44,18.2s-32.3-6.5-44-18.2c-24.3-24.3-24.3-63.8 0-88l44-44 88,88-44,44z'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 .brand b { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
 
@@ -146,11 +146,19 @@ body {
 .card-body.checks { gap: 11px; }
 .card-body > .spacer { flex: 1; }
 
-/* segmented control, as in the chart header */
-.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+/* segmented control, as in the chart header.
+ * fixed height + flex centring rather than padding + line-height: padding
+ * around a line box centres the *box*, not the glyphs, because the box
+ * carries descent space the caps never use. 27px matches button.icon. */
+.seg {
+  display: inline-flex; height: 27px;
+  border: 1px solid var(--rule); border-radius: 8px; overflow: hidden;
+}
 .seg button {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 100%; padding: 0 12px; box-shadow: none;
   border: none; border-radius: 0; background: var(--paper); color: var(--ink-3);
-  padding: 6px 11px; font: 500 12.5px/1 var(--sans); text-transform: none;
+  font: 500 12.5px/1 var(--sans); text-transform: none;
   letter-spacing: 0; cursor: pointer;
 }
 .seg button + button { border-left: 1px solid var(--rule); }
@@ -221,9 +229,16 @@ button:hover:not(:disabled) { background: var(--hover); border-color: var(--ink-
 button.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 button.primary:hover:not(:disabled) { opacity: 0.85; background: var(--ink); }
 button:disabled { opacity: 0.42; cursor: not-allowed; box-shadow: none; }
-button.icon { padding: 7px; line-height: 0; }
-button.icon svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.6;
-                  stroke-linecap: round; stroke-linejoin: round; }
+/* inline-flex + block svg: an inline svg would sit on the text baseline and
+ * leave descender space under it, pushing the glyph off centre in the box */
+/* 27px matches the segmented control it sits beside in the topbar
+ * (12.5px line + 2x6px padding + 2x1px border) */
+button.icon {
+  padding: 0; line-height: 0; width: 27px; height: 27px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+button.icon svg { display: block; width: 16px; height: 16px; stroke: currentColor;
+                  fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 
 .msg { font-size: 12.5px; font-family: var(--mono); color: var(--ink-3); }
 .msg.err { color: var(--paper); background: var(--ink); padding: 4px 9px; border-radius: 6px; }
@@ -260,35 +275,7 @@ dialog.modal::backdrop { background: rgba(10, 10, 9, 0.45); }
 .modal-head .note { font-size: 12.5px; color: var(--ink-3); }
 .modal-head .right { margin-left: auto; }
 .modal-body { max-height: min(60vh, 520px); overflow: auto; }
-.modal-foot {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 18px; border-top: 1px solid var(--rule);
-  font-size: 12.5px; color: var(--ink-3);
-}
-.modal-foot .right { margin-left: auto; display: flex; gap: 8px; }
-
-/* ================= split pane (arch | sizes) ================= */
-.split { display: grid; grid-template-columns: 232px minmax(0, 1fr); }
-.split > .pane { min-width: 0; }
-.split > .pane + .pane { border-left: 1px solid var(--rule); }
-.pane-head {
-  font: 600 10.5px/1 var(--sans); text-transform: uppercase; letter-spacing: 0.075em;
-  color: var(--ink-3); padding: 11px 14px; border-bottom: 1px solid var(--rule);
-  background: var(--canvas); display: flex; align-items: center; gap: 8px;
-}
-.pane-head .right { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; }
-.pane .picker { border: none; border-radius: 0; }
-@media (max-width: 760px) {
-  .split { grid-template-columns: minmax(0, 1fr); }
-  .split > .pane + .pane { border-left: none; border-top: 1px solid var(--rule); }
-}
-
-.tag {
-  display: inline-block; font: 500 10px/1.5 var(--sans); text-transform: uppercase;
-  letter-spacing: 0.06em; padding: 1px 6px; border-radius: 4px;
-  border: 1px solid var(--rule); color: var(--ink-3); vertical-align: 1px;
-}
-.tag.solid { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.modal-body .picker { border: none; border-radius: 0; }
 
 /* ================= option picker ================= */
 .picker { border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
@@ -337,6 +324,15 @@ table.data .key { color: var(--ink); font-weight: 500; }
 table.data .key small { display: block; color: var(--ink-3); font-weight: 400; font-size: 12px; margin-top: 2px; }
 table.data td.flag { color: var(--paper); }
 table.data td.flag span { background: var(--ink); padding: 2px 7px; border-radius: 5px; font-family: var(--mono); font-size: 12px; }
+/* editable cells (dataset mixture): keep rows compact and right-aligned */
+table.data td { vertical-align: middle; }
+table.data input.ds-w { width: 42px; text-align: center; padding: 5px 6px; }
+table.data input.ds-hf { margin-top: 5px; padding: 5px 8px; font-size: 12.5px; }
+table.data td:last-child { width: 1%; white-space: nowrap; }
+table.data .ds-x { border-color: transparent; box-shadow: none; background: transparent; }
+table.data .ds-x:hover:not(:disabled) { border-color: var(--rule); background: var(--hover); }
+table.data .ds-x svg { width: 15px; height: 15px; stroke: var(--ink-3); }
+table.data .ds-x:hover:not(:disabled) svg { stroke: var(--ink); }
 
 /* ================= misc ================= */
 .cmd {

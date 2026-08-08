@@ -25,11 +25,13 @@
 
   apply(stored());  // before paint
 
-  var SUN = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/>'
-    + '<path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.2 5.2l1.4 1.4M17.4 17.4l1.4 1.4'
-    + 'M18.8 5.2l-1.4 1.4M6.6 17.4l-1.4 1.4"/></svg>';
-  var MOON = '<svg viewBox="0 0 24 24"><path d="M20 14.2A8.2 8.2 0 019.8 4a8.4 8.4 0 100 20 '
-    + '8.4 8.4 0 0010.2-9.8z"/></svg>';
+  // feather icons (MIT). both are built on a shape centred at (12,12) in a
+  // 24x24 box, so they sit true in the button and clear the stroke width.
+  var SUN = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/>'
+    + '<path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42'
+    + 'M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>';
+  var MOON = '<svg viewBox="0 0 24 24">'
+    + '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
 
   function initTheme() {
     var btn = document.getElementById("themetoggle");
