@@ -614,6 +614,18 @@ const ARCHS = [
       { id: "g-12b", name: "12B", origin: "pluggy", layers: 48, heads: 16, kv: 8, hd: 256, emb: 3840, ffn: 15360 },
     ],
   },
+  {
+    // Qwen3-MoE (dropless, no shared expert). See pluggy/models/qwen3_moe/qwen3_moe.py
+    // Common sizes derived from the official 30B-A3B (48L, 2048d, 128 experts, top-8).
+    id: "qwen3_moe", name: "Qwen3 MoE", tied: true,
+    vocab: 151936, tokenizer: "Qwen/Qwen3-0.6B",
+    sizes: [
+      { id: "qmoe-0.5b", name: "0.5B-A0.1B", origin: "pluggy", layers: 16, heads: 8, kv: 2, hd: 64, emb: 1024, ffn: 2048, moe_ffn_dim: 256, num_experts: 32, top_k: 4 },
+      { id: "qmoe-1.5b", name: "1.5B-A0.4B", origin: "pluggy", layers: 24, heads: 12, kv: 4, hd: 128, emb: 1536, ffn: 3072, moe_ffn_dim: 384, num_experts: 64, top_k: 6 },
+      { id: "qmoe-4b",   name: "4B-A1B",    origin: "pluggy", layers: 32, heads: 16, kv: 4, hd: 128, emb: 2048, ffn: 4096, moe_ffn_dim: 512, num_experts: 64, top_k: 8 },
+      { id: "qmoe-30b",  name: "30B-A3B",   origin: "Qwen3-30B-A3B", layers: 48, heads: 24, kv: 8, hd: 128, emb: 2048, ffn: 4096, moe_ffn_dim: 768, num_experts: 128, top_k: 8 },
+    ],
+  },
 ];
 /* pluggy mixes datasets natively via data.sources.
  * The UI now lets you directly set the desired % of training tokens per source.
@@ -839,14 +851,20 @@ function fillSelector(prefix, row) {
 function renderSelectors() {
   const arch = picked.arch, m = picked.size, g = picked.gpu;
   fillSelector("arch", {
-    name: arch.name,
-    desc: `${arch.sizes.length} sizes · vocab ${compact(arch.vocab)}`,
+    name: arch.name || "Custom Model",
+    desc: arch.custom 
+      ? "user-described architecture" 
+      : `${arch.sizes.length} sizes · vocab ${compact(arch.vocab)}`,
   });
   fillSelector("size", {
     name: m.name,
-    desc: `${m.layers}L · ${m.emb}d · ${m.heads}/${m.kv} heads · ffn ${m.ffn}`,
-    val: `${compact(totalOf(m, arch.vocab, arch.tied, arch))}<small>${
-      m.origin === "pluggy" ? "derived config" : m.origin}</small>`,
+    desc: m.origin === "custom" 
+      ? "user-described size" 
+      : `${m.layers}L · ${m.emb}d · ${m.heads}/${m.kv} heads · ffn ${m.ffn}`,
+    val: m.origin === "custom"
+      ? "custom"
+      : `${compact(totalOf(m, arch.vocab, arch.tied, arch))}<small>${
+          m.origin === "pluggy" ? "derived config" : m.origin}</small>`,
   });
   fillSelector("gpu", {
     name: g.name,
@@ -860,7 +878,24 @@ function initPickers() {
     openPicker("Architecture", "from MODEL_REGISTRY", archRows(), picked.arch.id, id => {
       if (id === "custom") {
         $("custom_model_area").style.display = "block";
-        picked.arch = { id: "custom", name: "Custom Model", custom: true };
+        picked.arch = { 
+          id: "custom", 
+          name: "Custom Model", 
+          custom: true,
+          vocab: 151936,
+          tied: true 
+        };
+        picked.size = { 
+          id: "custom-size", 
+          name: "Custom Size", 
+          layers: 24, 
+          emb: 2048, 
+          heads: 16, 
+          kv: 8, 
+          hd: 128, 
+          ffn: 4096,
+          origin: "custom"
+        };
       } else {
         $("custom_model_area").style.display = "none";
         picked.arch = ARCHS.find(a => a.id === id);
@@ -1038,7 +1073,7 @@ function expert() {
   $("crumb_cfg").textContent = configName;
   $("head_params").textContent = compact(total) + " params";
   $("head_meta").innerHTML =
-    `<span>${$("m_name").value}</span><span class="sep">·</span>` +
+    `<span>${$("m_name").value === "custom" ? "Custom Model" : $("m_name").value}</span><span class="sep">·</span>` +
     `<span>${par} × ${dp}</span><span class="sep">·</span>` +
     `<span>${$("d_name").value}</span>`;
   $("data_note").textContent = compact(tokensPerStep) + " tok/step";
