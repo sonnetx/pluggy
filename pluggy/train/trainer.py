@@ -27,7 +27,7 @@ from pluggy.checkpoint.checkpointer import Checkpointer
 from pluggy.core.collective import all_reduce, barrier
 from pluggy.core.grad_helper import clip_grad_norm
 from pluggy.core.mesh import Mesh
-from pluggy.dataloader.builder import build_dataloader
+from pluggy.dataloader.builder import build_dataloader, resolve_sources
 from pluggy.dataloader.prefetcher import CUDAPrefetcher
 from pluggy.models.builder import build_model
 from pluggy.objectives.builder import build_objective
@@ -397,6 +397,21 @@ class Trainer:
         assert state["config"]["mesh"] == self.config["mesh"], (
             f"resume across a mesh change is unsupported: checkpoint has "
             f"{state['config']['mesh']}, config has {self.config['mesh']}"
+        )
+        # same failure mode one level down: the dataloader state holds one
+        # stream position PER SOURCE, and hf applies them positionally with no
+        # validation, so resuming after a source was added, dropped or
+        # reordered restores one corpus's position into another -- silently.
+        # changing only the weights is a real thing to want mid-run (a
+        # curriculum switch) and stays allowed.
+        def source_ids(config):
+            return [
+                (src["label"], src["config"], src["split"])
+                for src in resolve_sources(config["data"])
+            ]
+        assert source_ids(state["config"]) == source_ids(self.config), (
+            f"resume across a change of data sources is unsupported: checkpoint has "
+            f"{source_ids(state['config'])}, config has {source_ids(self.config)}"
         )
         self.checkpointer.load_model(self.model, step)
         self.checkpointer.load_optimizer(self.optimizer, step)

@@ -90,3 +90,52 @@ and swapping the `"model"` block:
 see the `init-dataset` skill (`.claude/skills/init-dataset/SKILL.md`) —
 covers finding the right `text_field`, subset/split, and tokenizer
 compatibility for a new HF dataset before writing its `"data"` config block.
+
+## mixing several datasets
+
+`"data"` takes either one dataset (the keys sit at the top level, unchanged)
+or a `"sources"` list, each entry with a relative `weight`:
+
+```json
+"data": {
+  "sources": [
+    {"name": "HuggingFaceFW/fineweb-edu", "config": "sample-10BT", "weight": 50},
+    {"name": "OptimalScale/ClimbMix", "weight": 30},
+    {"name": "open-web-math/open-web-math", "weight": 20}
+  ],
+  "mixing": {"stopping_strategy": "all_exhausted"},
+  "text_field": "text",
+  "... shared keys": "seq_len, tokenizer, eos/pad, batch sizes, seed, num_workers"
+}
+```
+
+full example: `configs/qwen3_dense_mix_ddp.json`. things worth knowing:
+
+- **weights are token shares, not document shares**, and they're relative
+  (30/50/20 means the same as 0.3/0.5/0.2). that only works because each
+  source is packed *before* the mix: every packed row is exactly `seq_len`
+  real tokens from one source, so drawing rows with probability p draws p of
+  the tokens no matter how the sources' document lengths differ. don't move
+  the interleave ahead of the packing to save a buffer — it silently turns
+  the weights into document counts and lets one sequence straddle two
+  corpora.
+- a source **inherits** any of `name`/`data_files`/`config`/`split`/
+  `text_field`/`weight`/`shuffle_buffer`/`pack_batch` it doesn't set from the
+  top level of `"data"`, so shared values are written once. an unknown key in
+  a source is an error, not a silent no-op (a typo'd `"weights"` would
+  otherwise train on a mixture nobody chose).
+- a source is named by **either** `name` (hub dataset) or `data_files` (local
+  jsonl shards, e.g. `pluggy/synth` output) — exactly one, and the two mix
+  freely, so a synth corpus can be blended into hub data by weight.
+- `mixing.stopping_strategy` decides what happens when a source runs dry:
+  `all_exhausted` (default) restarts it, so the ratio holds for the whole run
+  and small sources repeat; `first_exhausted` (hf's default) ends the stream
+  instead; `all_exhausted_without_replacement` drops exhausted sources and
+  lets the realized mixture drift. see `STOPPING_STRATEGIES` in
+  `pluggy/dataloader/builder.py`.
+- each dp rank node-splits every source separately and then draws its own
+  source sequence (`mixing_seed`), so the mixture is realized per rank rather
+  than replicated across a step.
+- `tests/data_mixing.py` (cpu, no network, in ci) is the guard: realized
+  token shares vs configured weights, row purity, and resume through a
+  `state_dict`. run it after touching anything in the builder's stream path.

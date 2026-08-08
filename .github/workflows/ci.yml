@@ -49,6 +49,8 @@ jobs:
         run: uv run --no-sync tests/collective.py --world-size 4
       - name: packing correctness
         run: uv run --no-sync tests/dataloader_packing.py --check
+      - name: data mixing ratios + resume
+        run: uv run --no-sync tests/data_mixing.py
       - name: checkpointer roundtrip
         run: uv run --no-sync tests/checkpointer.py
       - name: scheduler shapes + resume
