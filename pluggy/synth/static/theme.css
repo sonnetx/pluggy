@@ -65,8 +65,8 @@ body {
   height: 57px; padding: 0 8px; margin-bottom: 10px;
   color: var(--ink); text-decoration: none; flex: none;
 }
-/* plug mark, drawn as a mask so it takes --ink and flips with the theme.
- * source: SVG Repo, CC0 -- https://www.svgrepo.com/svg/83473/plug */
+/* plug icon used for both sidebar brand mark and favicon.
+ * CC0 from SVG Repo: https://www.svgrepo.com/svg/83473/plug */
 .brand .mark {
   width: 21px; height: 21px; flex: none;
   background-color: var(--ink);
@@ -138,11 +138,11 @@ body {
 .page-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 
 /* ================= cards ================= */
-/* align-items:start so a short card sizes to its content instead of being
- * stretched to match the tallest card in its row. */
+/* align-items:stretch makes side-by-side cards the same height so one growing
+ * (e.g. long Datasets table) makes its neighbour grow too. */
 .cards {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px; align-items: start;
+  gap: 16px; align-items: stretch;
 }
 @media (max-width: 1040px) { .cards { grid-template-columns: minmax(0, 1fr); } }
 .cards.single { grid-template-columns: minmax(0, 1fr); max-width: 720px; margin-inline: auto; }
