@@ -9,7 +9,11 @@ next unseen batch rather than batch 0.
 
 also covers resume discovery: latest()/valid_step() must only surface
 steps carrying a .complete marker, so a run that died mid-checkpoint
-falls back to the last whole one instead of loading a torn dir.
+falls back to the last whole one instead of loading a torn dir; the
+prefetcher's exact-resume contract (its loader-state snapshot must
+re-yield the prefetched-but-unconsumed batch, where the live loader
+state would skip it); and per-rank rng files with the trainer.pt
+fallback for checkpoints that predate them.
 
 cpu-only, no gpu or dataset download needed:
     uv run tests/checkpointer.py
@@ -25,6 +29,7 @@ import torch.nn as nn
 from torchdata.stateful_dataloader import StatefulDataLoader
 
 from pluggy.checkpoint.checkpointer import Checkpointer
+from pluggy.dataloader.prefetcher import CUDAPrefetcher
 from pluggy.optimizer.scheduler import WarmupStableDecaySchedulder
 
 
@@ -179,11 +184,82 @@ def check_completion_marker(tmp: str) -> None:
     assert ckpt.latest() == 20
 
 
+def check_prefetcher_resume(tmp: str) -> None:
+    """
+    the prefetcher runs one batch ahead of the caller, so the loader's live
+    state_dict() counts a batch the trainer never consumed. saving the
+    prefetcher's snapshot instead must make resume re-yield exactly the
+    prefetched-but-unconsumed batch. cpu device: the stream machinery is
+    skipped, the pull-ahead/snapshot logic under test is identical.
+    """
+    device = torch.device("cpu")
+    dataset = [{"x": torch.tensor([i])} for i in range(64)]
+
+    # num_workers=2 matters: worker prefetch queues are the other place a
+    # yielded-vs-consumed gap can hide, and StatefulDataLoader must account
+    # for them in state_dict
+    for num_workers in (0, 2):
+        def build_loader(num_workers=num_workers):
+            return StatefulDataLoader(dataset, batch_size=4, num_workers=num_workers)
+
+        ckpt = Checkpointer(os.path.join(tmp, f"prefetch_run_w{num_workers}"))
+        step = 3
+
+        loader = build_loader()
+        prefetcher = CUDAPrefetcher(loader, device)
+        for _ in range(step):
+            next(prefetcher)
+        # checkpoint here: 3 batches consumed, batch 4 sits prefetched
+        ckpt.save_dataloader_state(prefetcher.loader_state_dict(), step)
+        # what the old code would have saved -- the live loader state,
+        # already one batch ahead
+        ckpt.save_dataloader_state(loader.state_dict(), step, dp_rank=1)
+
+        expected = next(prefetcher)  # batch 4: prefetched, never consumed pre-"crash"
+        after = next(prefetcher)     # batch 5
+
+        loader2 = build_loader()
+        ckpt.load_dataloader(loader2, step)
+        resumed = next(CUDAPrefetcher(loader2, device))
+        torch.testing.assert_close(resumed["x"], expected["x"])
+
+        # regression documentation: the live state really does skip a batch
+        loader3 = build_loader()
+        ckpt.load_dataloader(loader3, step, dp_rank=1)
+        skipped = next(CUDAPrefetcher(loader3, device))
+        torch.testing.assert_close(skipped["x"], after["x"])
+
+
+def check_rng_files(tmp: str) -> None:
+    ckpt = Checkpointer(os.path.join(tmp, "rng_run"))
+    step = 5
+
+    # two "ranks" with different streams; each must get its own draws back
+    states, draws = {}, {}
+    for rank in (0, 1):
+        torch.manual_seed(100 + rank)
+        states[rank] = {"cpu_rng": torch.get_rng_state()}
+        draws[rank] = torch.randn(4)
+        ckpt.save_rng(states[rank], step, rank)
+
+    for rank in (0, 1):
+        loaded = ckpt.load_rng(step, rank)
+        torch.set_rng_state(loaded["cpu_rng"])
+        torch.testing.assert_close(torch.randn(4), draws[rank])
+
+    # a rank (or step) with no file is a pre-per-rank-rng checkpoint: the
+    # trainer falls back to the rank-0 states in trainer.pt
+    assert ckpt.load_rng(step, rank=2) is None
+    assert ckpt.load_rng(99, rank=0) is None
+
+
 def main() -> None:
     tmp = tempfile.mkdtemp(prefix="pluggy_ckpt_test_")
     try:
         check_roundtrip(tmp)
         check_completion_marker(tmp)
+        check_prefetcher_resume(tmp)
+        check_rng_files(tmp)
         print("all checkpointer checks passed")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

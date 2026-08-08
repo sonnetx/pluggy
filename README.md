@@ -27,8 +27,7 @@ implementations as the thing to test against, not the thing to depend on.
 - **memory-efficient loss** — a chunked fused linear+cross-entropy that never
   materializes the (batch, seq, vocab) logits tensor, otherwise the single
   biggest activation at large vocab sizes
-- **fused adamw + a working warmup-stable-decay schedule** (cosine is stubbed,
-  not wired up yet)
+- **fused adamw + warmup-stable-decay and warmup-cosine schedules**
 - **full checkpoint/resume** — model, optimizer, scheduler, dataloader
   position, and rng state, all restorable via `resume: null | "auto" | <step>`
 - **a from-scratch mesh + collectives layer** underneath all of the above —
@@ -69,8 +68,10 @@ no gpus needed for any of these except the last (gloo/cpu, `mp.spawn`):
 ```bash
 uv run tests/collective.py --world-size 4     # 12 collective op tests
 uv run tests/dataloader_packing.py --check    # packer equality + invariants
-uv run tests/checkpointer.py                  # save/load roundtrip
+uv run tests/checkpointer.py                  # save/load roundtrip + prefetcher exact resume
+uv run tests/scheduler.py                     # wsd + cosine shapes, resume parity
 uv run tests/data_parallel.py --world-size 4  # ddp grad parity vs single process
+uv run tests/grad_helper.py --world-size 2    # grad clipping vs torch reference
 uv run tests/fused_linear_ce.py               # needs cuda
 ```
 

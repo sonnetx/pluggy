@@ -84,10 +84,25 @@ class Trainer:
         self.ignore_index = self.config["objective"]["config"]["ignore_index"]
         self.tokenizer = Tokenizer.from_pretrained(self.config["data"]["tokenizer"])
 
+        # same seed on EVERY rank for build/init, so replicas are born
+        # identical (DDP's broadcast from rank 0 becomes belt-and-suspenders,
+        # and future sharded init slices the same full tensor). before this,
+        # nothing seeded torch at all, so no run was reproducible.
+        self.seed = self.config.get("seed", 0)
+        torch.manual_seed(self.seed)
+
         self.model = self._build_model()
         self._init_weights(self.model)
         self.model = self._parallelize(self.model)
         self._compile(self.model)
+
+        # after init, fork the streams per rank (roadmap 0.3): keyed on the dp
+        # coord, not the global rank, so future tp/cp peers of a dp shard
+        # would keep identical draws while dp shards differ. the +1 keeps
+        # rank 0's training stream from replaying the init stream. inert
+        # today (nothing samples per step), load-bearing the moment dropout
+        # or masked diffusion lands.
+        torch.manual_seed(self.seed + 1 + self.mesh.coordinate("dp"))
 
         self.objective = self._build_objective()
         self.optimizer = self._build_optimizer(self.model)
@@ -138,12 +153,12 @@ class Trainer:
         self.start_step = self._resume()
         self._setup_wandb()
 
-        # make the dataloader iterable, has to be after
-        # checkpointing resumption logic 
-        self.dataloader_iter = iter(self.dataloader)
-        # prefetch batch N+1's host->device copy on a side stream while step N
+        # the prefetcher owns the loader iterator (it needs the loader itself
+        # to snapshot state for exact-resume checkpointing); has to come after
+        # _resume so iteration starts from the restored position. prefetches
+        # batch N+1's host->device copy on a side stream while step N
         # computes; see pluggy/dataloader/prefetcher.py.
-        self.prefetcher = CUDAPrefetcher(self.dataloader_iter, self.device)
+        self.prefetcher = CUDAPrefetcher(self.dataloader, self.device)
 
 
     def _setup_wandb(self) -> None:
@@ -288,13 +303,8 @@ class Trainer:
         # step; this waits for it and kicks off the next one. pin_memory=True on
         # the DataLoader is what makes the async copy actually overlap.
         return next(self.prefetcher)
-    
-    def get_batch(self) -> dict[str, torch.Tensor]:
-        curr_batch = next(self.dataloader_iter)
-        # https://docs.pytorch.org/docs/2.12/notes/cuda.html#cuda-memory-pinning
-        # note that this only works since we set pin_memory true in the constructor
-        return {k: v.to(self.device, non_blocking=True) for k, v in curr_batch.items()}
-    
+
+
     @debug_time
     def checkpoint(self, step: int) -> None:
         # model/optimizer/scheduler are replicas under ddp: rank 0 writes the
@@ -304,15 +314,12 @@ class Trainer:
             self.checkpointer.save_model(self.model, step)
             self.checkpointer.save_optimizer(self.optimizer, step)
             self.checkpointer.save_scheduler(self.scheduler, step)
-            # written AFTER completing `step`, so _resume returns step + 1. rng
-            # capture is what keeps resume exact once anything samples per step
-            # (dropout, masked diffusion); the config snapshot is provenance for
-            # init_from and future drift warnings.
+            # written AFTER completing `step`, so _resume returns step + 1.
+            # the config snapshot is provenance for init_from and future
+            # drift warnings.
             self.checkpointer.save_trainer(
                 {
                     "step": step,
-                    "cpu_rng": torch.get_rng_state(),
-                    "cuda_rng": torch.cuda.get_rng_state(self.device),
                     "config": self.config,
                     # so a resume reattaches to this run instead of opening a
                     # new one and cutting the loss curve in half
@@ -320,7 +327,24 @@ class Trainer:
                 },
                 step,
             )
-        self.checkpointer.save_dataloader(self.dataloader, step, self.mesh.coordinate("dp"))
+        # rng is per PROCESS: every rank writes its own, so resume restores
+        # each rank's stream instead of stamping rank 0's everywhere. this is
+        # what keeps resume exact once anything samples per step (dropout,
+        # masked diffusion).
+        self.checkpointer.save_rng(
+            {
+                "cpu_rng": torch.get_rng_state(),
+                "cuda_rng": torch.cuda.get_rng_state(self.device),
+            },
+            step,
+            self.rank,
+        )
+        # the prefetcher's snapshot, NOT self.dataloader.state_dict(): the
+        # live state is one prefetched-but-unconsumed batch ahead, and saving
+        # it would make resume skip that batch
+        self.checkpointer.save_dataloader_state(
+            self.prefetcher.loader_state_dict(), step, self.mesh.coordinate("dp")
+        )
         # fence: no rank moves on (or exits) while writers are mid-file
         barrier()
         if self.rank == 0:
@@ -359,10 +383,14 @@ class Trainer:
             # load_scheduler would otherwise have restored
             self.scheduler.last_epoch = step
         self.checkpointer.load_dataloader(self.dataloader, step, self.mesh.coordinate("dp"))
-        # rank 0's rng lands on every rank; harmless while nothing samples
-        # per step, revisit with per-rank seed derivation (roadmap 0.3)
-        torch.set_rng_state(state["cpu_rng"])
-        torch.cuda.set_rng_state(state["cuda_rng"], self.device)
+        rng = self.checkpointer.load_rng(step, self.rank)
+        if rng is None:
+            # checkpoints from before per-rank rng files carried rank 0's
+            # states in trainer.pt; restoring them everywhere matches the
+            # old behavior and stays harmless while nothing samples per step
+            rng = {"cpu_rng": state["cpu_rng"], "cuda_rng": state["cuda_rng"]}
+        torch.set_rng_state(rng["cpu_rng"])
+        torch.cuda.set_rng_state(rng["cuda_rng"], self.device)
         # .get, not [...]: checkpoints written before wandb landed have no
         # such key, and they should still resume
         self.resume_wandb_id = state.get("wandb_id")

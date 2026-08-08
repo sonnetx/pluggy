@@ -56,5 +56,6 @@
     "save_steps": 10000,
     "resume": null
   },
+  "seed": 0,
   "run_name": "dolma3_test_run_1"
 }

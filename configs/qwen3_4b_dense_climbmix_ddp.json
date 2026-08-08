@@ -60,5 +60,6 @@
     "save_steps": 10000,
     "resume": null
   },
+  "seed": 0,
   "run_name": "climbmix_test_run_4b_ddp"
 }

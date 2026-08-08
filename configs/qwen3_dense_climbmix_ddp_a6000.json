@@ -59,6 +59,7 @@
     "save_steps": 4000,
     "resume": null
   },
+  "seed": 0,
   "run_name": "climbmix_long_test_run_ddp_a6000",
   "wandb": {
     "enabled": true,

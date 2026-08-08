@@ -56,24 +56,32 @@ is the direct fix — phase 2 is a throughput lever here, not only a memory one.
 | `parallelism/{fsdp2,context_parallel,expert_parallel}.py` | empty stubs — next up |
 | models | qwen3 dense (0.6B validated, per-block compile, ~13k tps on A40, 73.5k global on 8x A40); llama3 stubbed |
 | trainer | single-gpu and dp through the same path (world_size=1 is not a special case). lifecycle build → parallelize → init → optimizer → data, so sharded init slots in without reordering. grad accumulation (`global_batch_size / (micro_batch_size × dp)` microbatches) and grad-norm clipping both land in `train_step`; `train_step` returns a metrics dict (loss, grad_norm). no eval loop, no metrics logger, and `self.ddp` is still a concrete attribute — the parallelism abstraction gets designed when fsdp2 gives it a second implementation |
-| checkpointing | per-step dirs, `resume: null \| "auto" \| <step>`, full state (model/optimizer/scheduler/dataloader/rng/config). dp-aware: rank 0 writes replicas, every dp rank writes its own dataloader file, barrier-fenced, refuses to resume across a mesh change. still unsharded (phase 3) and still missing a done marker |
+| checkpointing | per-step dirs, `resume: null \| "auto" \| <step>`, full state (model/optimizer/scheduler/dataloader/rng/config). dp-aware: rank 0 writes replicas, every dp rank writes its own dataloader file, barrier-fenced, refuses to resume across a mesh change, `.complete` marker fences torn dirs, per-rank rng files. still unsharded (phase 3) |
 | objectives | AR CE, with the chunked fused-linear-CE landed and wired into `ARObjective` (default on). backward scales the stashed grads in place — see DEV_LOG 7/27 |
-| dataloader | streaming HF + packing (stream + best-fit-decreasing) + stateful + CUDA prefetcher; splits by the mesh's dp coordinate. packing allows cross-document attention (no doc mask); prefetcher skips one batch on resume |
+| dataloader | streaming HF + packing (stream + best-fit-decreasing) + stateful + CUDA prefetcher; splits by the mesh's dp coordinate. packing allows cross-document attention (no doc mask); prefetcher resume is exact (state snapshot taken before each pull) |
 
 ### known correctness debt
 
-- **prefetcher one-batch skip on resume** — the prefetcher pulls batch N+1
-  before `checkpoint()` snapshots the dataloader, so the saved position is one
-  batch ahead of what was consumed. data loss only, but "exact resume" isn't.
-- **no checkpoint done marker** — `latest()` trusts any numeric dir, including
-  a half-written one from a crash, which is the exact case `resume: "auto"`
-  exists for.
-- **rank 0's rng lands on every rank at resume** — harmless while nothing
-  samples per step, load-bearing the moment dropout or masked diffusion does
-  (needs the per-rank seed derivation in 0.3). nothing seeds torch at trainer
-  start either, so runs aren't reproducible.
-- **`tests/data_parallel.py` and `tests/grad_helper.py` aren't in ci** despite
-  being gloo/cpu and being the two most valuable tests in the tree.
+- fixed 8/8: **prefetcher one-batch skip on resume.** the prefetcher now
+  snapshots the loader's state_dict right before each pull, and
+  `checkpoint()` saves that snapshot instead of the live loader state, so
+  resume re-yields the prefetched-but-unconsumed batch. regression test
+  (including the old skip behavior as a negative control) in
+  tests/checkpointer.py.
+- fixed earlier: **no checkpoint done marker.** `mark_complete()` writes a
+  `.complete` marker after the barrier, `latest()`/`valid_step()` skip
+  unmarked dirs; covered in tests/checkpointer.py. this entry predated the
+  marker landing.
+- fixed 8/8: **rank 0's rng lands on every rank at resume / nothing seeds
+  torch.** the trainer now seeds from a top-level config `seed` (default 0):
+  identical on every rank through build/init, then forked per dp coord
+  (roadmap 0.3's derivation). every rank checkpoints its own
+  `rng_rank{r}.pt` and restores it on resume; rank-0 states in trainer.pt
+  remain the fallback for checkpoints that predate the per-rank files.
+- fixed 8/8: **`tests/data_parallel.py` and `tests/grad_helper.py` aren't in
+  ci.** both run in ci now, plus the new tests/scheduler.py (which also
+  unstubbed the cosine scheduler: warmup + half-cosine to
+  `min_lr_ratio`, floor held past total_steps).
 - **the benchmark numbers are boost-clock numbers.** throughput decays 2–3%
   over a run as the card power-caps (measured 7/30: `SwPowerCap` from step 0,
   clocks 1665 → 1590 MHz as it heats 70 → 79 °C). rounds 1–2 were 10–30 step

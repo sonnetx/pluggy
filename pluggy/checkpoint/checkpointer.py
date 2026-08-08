@@ -65,7 +65,14 @@ class Checkpointer:
     def save_dataloader(self, dataloader, step: int, dp_rank: int = 0) -> None:
         # per-dp-shard state: each dp rank streams a different slice of the
         # dataset, so each writes (and later loads) its own file
-        self._save(dataloader, step, f"dataloader_dp{dp_rank}.pt")
+        self.save_dataloader_state(dataloader.state_dict(), step, dp_rank)
+
+    def save_dataloader_state(self, state: dict, step: int, dp_rank: int = 0) -> None:
+        # the trainer saves the prefetcher's snapshot of the loader state, not
+        # the live loader's state_dict(): the prefetcher runs one batch ahead,
+        # so the live state counts a batch nothing has consumed yet and a
+        # resume from it would skip that batch
+        torch.save(state, os.path.join(self._step_dir(step, create=True), f"dataloader_dp{dp_rank}.pt"))
 
     def save_trainer(self, state: dict, step: int) -> None:
         # trainer state is already a plain dict (step, rng states, config
@@ -91,6 +98,19 @@ class Checkpointer:
         dataloader.load_state_dict(
             self._load(step, f"dataloader_dp{dp_rank}.pt", weights_only=False)
         )
+
+    def save_rng(self, state: dict, step: int, rank: int = 0) -> None:
+        # per-RANK, not per-dp-coord: rng is process state, and once tp/cp
+        # axes exist their ranks share a dp coord but must not share draws
+        torch.save(state, os.path.join(self._step_dir(step, create=True), f"rng_rank{rank}.pt"))
+
+    def load_rng(self, step: int, rank: int = 0) -> dict | None:
+        # None for checkpoints written before per-rank rng existed; the
+        # caller falls back to the rank-0 states stored in trainer.pt
+        path = os.path.join(self._step_dir(step), f"rng_rank{rank}.pt")
+        if not os.path.exists(path):
+            return None
+        return torch.load(path, map_location="cpu", weights_only=True)
 
     def _complete_path(self, step: int) -> str:
         return os.path.join(self._step_dir(step), ".complete")
