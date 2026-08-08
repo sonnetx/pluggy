@@ -6,7 +6,7 @@ something longer than a 20-40 step smoke test and to have a checkpoint worth
 actually looking at.
 
 ```
-uv run torchrun --nproc-per-node 4 -m torchure.train.train \
+uv run torchrun --nproc-per-node 4 -m pluggy.train.train \
     --config configs/qwen3_dense_climbmix_ddp.json
 ```
 
@@ -44,7 +44,7 @@ picked **42,000** — also chosen to divide evenly into `save_steps`.
 | `optimizer.scheduler.warmup_ratio` | 0.001 | 0.01 | 0.001×42000 ≈ 42 steps was too short for a from-scratch run; 420 is more typical |
 | `checkpointing.save_steps` | 10000 | 6000 | 10000 > total_steps meant **zero checkpoints would have saved at all**; 6000 divides 42000 evenly (7 checkpoints, last one lands exactly at the end) |
 | `run_name` | `climbmix_test_run_ddp` | `climbmix_long_test_run_ddp_h100` | distinguish from the benchmark-run checkpoints already sitting in `checkpoints/` |
-| `wandb` | (missing) | `{"enabled": true, "project": "torchure", "entity": null}` | see below |
+| `wandb` | (missing) | `{"enabled": true, "project": "pluggy", "entity": null}` | see below |
 
 the `save_steps` one was the closest call to a real footgun: at the
 as-checked-in settings (`total_steps: 100`, `save_steps: 10000`) a full run
@@ -73,7 +73,7 @@ is what actually launched the run.
 
 ## the run
 
-`wandb/run-20260730_224316-seyczvik`, project `torchure`.
+`wandb/run-20260730_224316-seyczvik`, project `pluggy`.
 
 - started 2026-07-30 22:43:16, finished 2026-07-31 06:54:46 — **~8h11m**,
   within ~10% of the 8h target derived above.
@@ -94,7 +94,7 @@ is what actually launched the run.
 ## post-run: does it know anything
 
 no inference/eval code existed before this — added
-`torchure/inference/{common,eval_ppl,chat}.py`, all standalone (no process
+`pluggy/inference/{common,eval_ppl,chat}.py`, all standalone (no process
 group, no Mesh, load straight off a `checkpoints/<run_name>/<step>/model.pt`
 state dict).
 

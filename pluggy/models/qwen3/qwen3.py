@@ -340,7 +340,7 @@ class Qwen3(nn.Module):
                 hidden_states.append(x)
 
         # skip the head: lets the objective fuse lm_head + cross-entropy
-        # (see torchure/loss/fused_linear_ce.py) without materializing the
+        # (see pluggy/loss/fused_linear_ce.py) without materializing the
         # (B, S, vocab) logits.
         if return_final_hidden:
             return self.norm(x)

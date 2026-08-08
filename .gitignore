@@ -221,5 +221,5 @@ __marimo__/
 *.pyc
 *.pt
 # profiler chrome traces -- ~11MB each, regenerate with
-# torchure/train/profile_overlap.py rather than committing them
+# pluggy/train/profile_overlap.py rather than committing them
 traces/

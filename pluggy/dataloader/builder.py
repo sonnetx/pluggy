@@ -21,7 +21,7 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 # packing strategies live in packers.py so they can be swapped/benchmarked
 # independently; see tests/dataloader_packing.py. ListPacker is the original
 # python-list implementation.
-from torchure.dataloader.packers import ListPacker
+from pluggy.dataloader.packers import ListPacker
 
 
 class Collator:

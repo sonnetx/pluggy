@@ -1,7 +1,7 @@
 # Optimization Changes
 
 Tracking throughput optimizations to the training stack. Metric: **TPS**
-(tokens/sec) reported by `uv run torchure/train/trainer.py` (steady-state, i.e.
+(tokens/sec) reported by `uv run pluggy/train/trainer.py` (steady-state, i.e.
 ignoring step 0 warmup). Config: `configs/qwen3_dense_climbmix.json`
 (qwen3 0.6B dense, seq_len=4096, batch_size=2 => 8192 tok/step). GPU: A40.
 
@@ -106,7 +106,7 @@ fused-linear-CE, both better evaluated alongside the distributed work.
 Both "future work" items from round 1 done: chunked fused-linear-CE and the
 batch-size scan it unlocks. Same setup (A40, qwen3 0.6B, seq_len=4096,
 `configs/qwen3_dense_climbmix.json`), steady-state TPS from
-`uv run torchure/train/trainer.py`.
+`uv run pluggy/train/trainer.py`.
 
 ## Results
 
@@ -128,7 +128,7 @@ differences are bf16 noise). Net adopted: **~12730 -> ~13180 TPS (+3.5%) and
 ## Changes
 
 ### 5. Chunked fused linear + cross-entropy (+3.5% TPS, −20% peak mem)
-`torchure/loss/fused_linear_ce.py`, wired through `ARObjective`
+`pluggy/loss/fused_linear_ce.py`, wired through `ARObjective`
 (`fused_linear_ce: true`, `ce_chunk_size: 4096` in the objective config;
 fallback to the old logits path with `fused_linear_ce: false`).
 

@@ -4,17 +4,17 @@ world_size just differs.
 
 single gpu (the env setdefaults below stand in for what torchrun would set):
 
-    uv run -m torchure.train.train --config configs/qwen3_dense_climbmix.json
+    uv run -m pluggy.train.train --config configs/qwen3_dense_climbmix.json
 
 multi gpu:
 
-    uv run torchrun --nproc-per-node 8 -m torchure.train.train \
+    uv run torchrun --nproc-per-node 8 -m pluggy.train.train \
         --config configs/qwen3_dense_climbmix_ddp.json
 
 benchmark mode (fixed step count, no checkpointing) -- where CHANGES.md
 numbers come from:
 
-    uv run -m torchure.train.train --config configs/qwen3_dense_climbmix.json --steps 20
+    uv run -m pluggy.train.train --config configs/qwen3_dense_climbmix.json --steps 20
 """
 
 import argparse
@@ -25,7 +25,7 @@ from datetime import timedelta
 import torch
 import torch.distributed as dist
 
-from torchure.train.trainer import Trainer
+from pluggy.train.trainer import Trainer
 
 
 def parse_args() -> argparse.Namespace:

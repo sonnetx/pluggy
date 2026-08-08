@@ -8,12 +8,12 @@ hiding 40% of the traffic or 95%.
 
 capture a trace and print the table:
 
-    uv run torchrun --nproc-per-node 8 -m torchure.train.profile_overlap \
+    uv run torchrun --nproc-per-node 8 -m pluggy.train.profile_overlap \
         --config configs/qwen3_dense_climbmix_ddp.json --out traces/overlap_dp8.json
 
 re-analyze one you already have (no gpus, no rendezvous):
 
-    uv run -m torchure.train.profile_overlap --analyze traces/overlap_dp8.json
+    uv run -m pluggy.train.profile_overlap --analyze traces/overlap_dp8.json
 
 the chrome trace also loads directly in ui.perfetto.dev. two tracks matter
 there: the compute stream and the nccl stream. put them side by side and the
@@ -44,7 +44,7 @@ import torch
 import torch.distributed as dist
 from torch.profiler import ProfilerActivity, profile
 
-from torchure.train.trainer import Trainer
+from pluggy.train.trainer import Trainer
 
 # cupti categories that represent actual device work
 GPU_CATS = ("kernel", "gpu_memcpy", "gpu_memset")

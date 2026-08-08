@@ -9,7 +9,7 @@ run: uv run tests/fused_linear_ce.py
 import torch
 import torch.nn.functional as F
 
-from torchure.loss.fused_linear_ce import fused_linear_cross_entropy
+from pluggy.loss.fused_linear_ce import fused_linear_cross_entropy
 
 
 def reference(hidden, weight, labels, ignore_index):

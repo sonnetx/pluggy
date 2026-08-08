@@ -47,7 +47,7 @@ one DDP instance per model: hooks are registered once and never removed.
 import torch
 import torch.nn as nn
 
-from torchure.core.collective import MeshLike, all_reduce, broadcast
+from pluggy.core.collective import MeshLike, all_reduce, broadcast
 
 
 class _Bucket:

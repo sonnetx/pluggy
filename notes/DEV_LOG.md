@@ -143,7 +143,7 @@ drive-by.
 - `configs/qwen3_dense.json` was dead: no `mesh` key (KeyError in the Trainer
   ctor) and no `checkpointing` key, since neither existed when it was written.
   it's the config train.py's docstring pointed at.
-- the README's run command (`uv run torchure/train/trainer.py`) had been broken
+- the README's run command (`uv run pluggy/train/trainer.py`) had been broken
   since the mesh landed — Trainer can't be built without a process group.
   deleted trainer.py's `__main__` rather than repairing it: there should be one
   entrypoint, and it's train.py, which does the rendezvous first. the bench

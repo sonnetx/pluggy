@@ -63,7 +63,7 @@
   "run_name": "climbmix_long_test_run_ddp_h100",
   "wandb": {
     "enabled": true,
-    "project": "torchure",
+    "project": "pluggy",
     "entity": null
   }
 }

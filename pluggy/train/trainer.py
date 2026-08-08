@@ -23,17 +23,17 @@ import torch.nn as nn
 import torchdata
 from tokenizers import Tokenizer
 
-from torchure.checkpoint.checkpointer import Checkpointer
-from torchure.core.collective import all_reduce, barrier
-from torchure.core.grad_helper import clip_grad_norm
-from torchure.core.mesh import Mesh
-from torchure.dataloader.builder import build_dataloader
-from torchure.dataloader.prefetcher import CUDAPrefetcher
-from torchure.models.builder import build_model
-from torchure.objectives.builder import build_objective
-from torchure.optimizer.builder import build_optimizer, build_scheduler
-from torchure.parallelism.data_parallel import DDP
-from torchure.utils import record_time, debug_time, get_project_dir
+from pluggy.checkpoint.checkpointer import Checkpointer
+from pluggy.core.collective import all_reduce, barrier
+from pluggy.core.grad_helper import clip_grad_norm
+from pluggy.core.mesh import Mesh
+from pluggy.dataloader.builder import build_dataloader
+from pluggy.dataloader.prefetcher import CUDAPrefetcher
+from pluggy.models.builder import build_model
+from pluggy.objectives.builder import build_objective
+from pluggy.optimizer.builder import build_optimizer, build_scheduler
+from pluggy.parallelism.data_parallel import DDP
+from pluggy.utils import record_time, debug_time, get_project_dir
 
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -142,7 +142,7 @@ class Trainer:
         # checkpointing resumption logic 
         self.dataloader_iter = iter(self.dataloader)
         # prefetch batch N+1's host->device copy on a side stream while step N
-        # computes; see torchure/dataloader/prefetcher.py.
+        # computes; see pluggy/dataloader/prefetcher.py.
         self.prefetcher = CUDAPrefetcher(self.dataloader_iter, self.device)
 
 
@@ -164,7 +164,7 @@ class Trainer:
         # the full config doubles as the run's searchable hyperparameters, so
         # two runs can be diffed in the ui instead of by digging up the json
         self.wandb_run = wandb.init(
-            project=wandb_cfg.get("project", "torchure"),
+            project=wandb_cfg.get("project", "pluggy"),
             entity=wandb_cfg.get("entity"),
             name=self.run_name,
             id=self.resume_wandb_id,
@@ -442,6 +442,6 @@ class Trainer:
 
 # no __main__ here on purpose: a Trainer can't be built without a process group
 # (Mesh asserts on it), so launching this file directly always crashed. the one
-# entrypoint is torchure/train/train.py, which does the rendezvous first --
+# entrypoint is pluggy/train/train.py, which does the rendezvous first --
 # including for the single-gpu benchmark path (--steps).
 

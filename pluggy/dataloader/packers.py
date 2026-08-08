@@ -30,7 +30,7 @@ import torch
 
 from tokenizers import Tokenizer
 
-from torchure.utils import Node
+from pluggy.utils import Node
 
 
 class Packer:

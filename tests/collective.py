@@ -1,12 +1,12 @@
 """
-correctness tests for torchure/core/collective.py.
+correctness tests for pluggy/core/collective.py.
 
 run (gloo/cpu, no gpus needed, works on a single-gpu box):
     uv run tests/collective.py --world-size 4
 or under torchrun (required for nccl, needs one gpu per rank):
     uv run torchrun --nproc-per-node 2 tests/collective.py --backend nccl
 
-the tests are implemented; the collectives in torchure/core/collective.py
+the tests are implemented; the collectives in pluggy/core/collective.py
 are the stubs. a test goes green when its collective honors the contract in
 its docstring (in-place vs new tensor, coordinate vs global rank, etc.).
 
@@ -28,8 +28,8 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
-from torchure.core import collective as C
-from torchure.core.mesh import Mesh
+from pluggy.core import collective as C
+from pluggy.core.mesh import Mesh
 
 
 class Skip(Exception):
@@ -239,7 +239,7 @@ def test_subgroup_isolation(mesh, dim, device):
     # must only combine ranks in that dim's subgroup. runs against the real
     # core/mesh.py, not the FlatMesh passed in.
     try:
-        from torchure.core.mesh import Mesh
+        from pluggy.core.mesh import Mesh
     except ImportError:
         raise Skip("core/mesh.py not implemented yet") from None
     if dist.get_world_size() != 4:

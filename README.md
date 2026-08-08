@@ -1,4 +1,4 @@
-# torchure
+# pluggy
 
 pure pytorch training stack with minimal deps.
 
@@ -49,16 +49,16 @@ single gpu and multi gpu are the same code path — world_size is just 1:
 
 ```bash
 # single gpu
-uv run -m torchure.train.train --config configs/qwen3_dense_climbmix.json
+uv run -m pluggy.train.train --config configs/qwen3_dense_climbmix.json
 
 # multi gpu
-uv run torchrun --nproc-per-node 8 -m torchure.train.train \
+uv run torchrun --nproc-per-node 8 -m pluggy.train.train \
     --config configs/qwen3_dense_climbmix_ddp.json
 
 # benchmark mode: N steps, no checkpointing, prints tps + peak mem
-uv run -m torchure.train.train --config configs/qwen3_dense_climbmix.json --steps 20
+uv run -m pluggy.train.train --config configs/qwen3_dense_climbmix.json --steps 20
 
-uv run torchrun --nproc-per-node 8 -m torchure.train.train \
+uv run torchrun --nproc-per-node 8 -m pluggy.train.train \
     --config configs/qwen3_dense_climbmix_ddp.json --steps 20
 ```
 

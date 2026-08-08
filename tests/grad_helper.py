@@ -1,5 +1,5 @@
 """
-tests for torchure/core/grad_helper.py -- global grad-norm clipping.
+tests for pluggy/core/grad_helper.py -- global grad-norm clipping.
 
 run (gloo/cpu, no gpus needed):
     uv run tests/grad_helper.py --world-size 2
@@ -37,9 +37,9 @@ import torch.multiprocessing as mp
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torchure.core.grad_helper import clip_grad_norm
-from torchure.core.mesh import Mesh
-from torchure.models.qwen3.qwen3 import Qwen3
+from pluggy.core.grad_helper import clip_grad_norm
+from pluggy.core.mesh import Mesh
+from pluggy.models.qwen3.qwen3 import Qwen3
 
 CFG = {
     "num_layers": 2,

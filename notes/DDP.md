@@ -10,7 +10,7 @@
 goal: get data parallel training up and running (roadmap phase 1), tested with
 
 ```
-uv run torchrun --nproc-per-node 8 -m torchure.train.train --config configs/qwen3_dense_climbmix_ddp.json
+uv run torchrun --nproc-per-node 8 -m pluggy.train.train --config configs/qwen3_dense_climbmix_ddp.json
 ```
 
 priority order per the brief: throughput first, clean code second. so this
@@ -31,7 +31,7 @@ deferred to a later pass.
 
 ## what landed
 
-### `torchure/parallelism/data_parallel.py` (new — was an empty stub)
+### `pluggy/parallelism/data_parallel.py` (new — was an empty stub)
 
 `DDP(model, mesh, dim="dp", bucket_mb=25, overlap=True)` + `ddp.sync()`
 between `loss.backward()` and `optimizer.step()`. mechanics:
@@ -72,7 +72,7 @@ between `loss.backward()` and `optimizer.step()`. mechanics:
   overhead. single gpu stays the same code path (principle: world_size=1 is
   not a special case).
 
-### `torchure/core/collective.py` — one contract change (the "note why" bit)
+### `pluggy/core/collective.py` — one contract change (the "note why" bit)
 
 the only abstraction change this task needed. `all_reduce(op="avg")` on
 backends without `ReduceOp.AVG` (gloo) was sum-then-divide and asserted on
@@ -87,7 +87,7 @@ untouched — no consumer yet (fsdp2 will decide).
 everything else (broadcast, async all_reduce, barrier, mesh groups/coords)
 was already sufficient — the collectives layer held up as designed.
 
-### trainer wiring (`torchure/train/trainer.py`)
+### trainer wiring (`pluggy/train/trainer.py`)
 
 - `_parallelize` builds `self.ddp` (before `_compile` on purpose: hooks sit
   on params at the AccumulateGrad boundary, outside the compiled regions —

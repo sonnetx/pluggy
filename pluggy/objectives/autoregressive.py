@@ -9,8 +9,8 @@ import torch
 
 import torch.nn as nn
 
-from torchure.loss.cross_entropy import cross_entropy_loss
-from torchure.loss.fused_linear_ce import fused_linear_cross_entropy
+from pluggy.loss.cross_entropy import cross_entropy_loss
+from pluggy.loss.fused_linear_ce import fused_linear_cross_entropy
 
 
 class ARObjective():

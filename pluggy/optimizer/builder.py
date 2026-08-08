@@ -14,7 +14,7 @@ straight through, so it stays config-driven per optimizer.
 import torch.nn as nn
 import torch.optim as optim
 
-from torchure.optimizer.scheduler import WarmupStableDecaySchedulder, CosineAnnealingScheduler
+from pluggy.optimizer.scheduler import WarmupStableDecaySchedulder, CosineAnnealingScheduler
 
 
 OPTIMIZER_REGISTRY = {

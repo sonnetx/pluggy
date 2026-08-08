@@ -1,4 +1,4 @@
-# torchure
+# pluggy
 pure pytorch training stack with minimal deps
 
 no framework imports (megatron, deepspeed, accelerate, liger) — the mesh,
@@ -6,15 +6,15 @@ collectives, and parallelism are implemented here, with pytorch's versions as
 the thing to test against rather than the thing to depend on.
 
 ## what's here
-- `torchure/models/` — self-contained qwen3 dense (GQA + RoPE + SwiGLU, tied embeddings), llama3 stubbed
-- `torchure/dataloader/` — streaming HF datasets, sequence packing (stream + best-fit-decreasing), stateful dataloader, CUDA prefetcher (overlaps h2d copy with compute)
-- `torchure/objectives/` + `torchure/loss/` — AR next-token cross entropy, plus a chunked fused linear+CE that never materializes the (B, S, vocab) logits
-- `torchure/optimizer/` — fused adamw, wsd scheduler (cosine still a stub)
-- `torchure/core/mesh.py` — named device mesh over the flat rank space: per-axis process groups, coordinates, and `flatten()` for virtual axes (e.g. one "which batch shard am i" dp coord spanning dp_replicate × dp_shard)
-- `torchure/core/collective.py` — mesh-aware all_reduce / broadcast / all_gather / reduce_scatter / all_to_all / ring_send_recv. the only module that touches `torch.distributed` comm ops directly
-- `torchure/parallelism/data_parallel.py` — DDP: bucketed grad all-reduce launched from backward hooks, overlapped with the rest of backward. fsdp2/tp/cp/ep are still empty stubs
-- `torchure/train/trainer.py` — trainer: bf16 autocast, per-block torch.compile (fsdp2-friendly granularity), dp-aware loss logging
-- `torchure/checkpoint/` — per-step model/optimizer/scheduler/dataloader/rng saving, `resume: null | "auto" | <step>`
+- `pluggy/models/` — self-contained qwen3 dense (GQA + RoPE + SwiGLU, tied embeddings), llama3 stubbed
+- `pluggy/dataloader/` — streaming HF datasets, sequence packing (stream + best-fit-decreasing), stateful dataloader, CUDA prefetcher (overlaps h2d copy with compute)
+- `pluggy/objectives/` + `pluggy/loss/` — AR next-token cross entropy, plus a chunked fused linear+CE that never materializes the (B, S, vocab) logits
+- `pluggy/optimizer/` — fused adamw, wsd scheduler (cosine still a stub)
+- `pluggy/core/mesh.py` — named device mesh over the flat rank space: per-axis process groups, coordinates, and `flatten()` for virtual axes (e.g. one "which batch shard am i" dp coord spanning dp_replicate × dp_shard)
+- `pluggy/core/collective.py` — mesh-aware all_reduce / broadcast / all_gather / reduce_scatter / all_to_all / ring_send_recv. the only module that touches `torch.distributed` comm ops directly
+- `pluggy/parallelism/data_parallel.py` — DDP: bucketed grad all-reduce launched from backward hooks, overlapped with the rest of backward. fsdp2/tp/cp/ep are still empty stubs
+- `pluggy/train/trainer.py` — trainer: bf16 autocast, per-block torch.compile (fsdp2-friendly granularity), dp-aware loss logging
+- `pluggy/checkpoint/` — per-step model/optimizer/scheduler/dataloader/rng saving, `resume: null | "auto" | <step>`
 
 everything is driven by a json config, see `configs/qwen3_dense_climbmix.json`
 (single gpu) and `configs/qwen3_dense_climbmix_ddp.json` (8-way dp).
@@ -27,16 +27,16 @@ single gpu and multi gpu are the same code path — world_size is just 1:
 
 ```bash
 # single gpu
-uv run -m torchure.train.train --config configs/qwen3_dense_climbmix.json
+uv run -m pluggy.train.train --config configs/qwen3_dense_climbmix.json
 
 # multi gpu
-uv run torchrun --nproc-per-node 8 -m torchure.train.train \
+uv run torchrun --nproc-per-node 8 -m pluggy.train.train \
     --config configs/qwen3_dense_climbmix_ddp.json
 
 # benchmark mode: N steps, no checkpointing, prints tps + peak mem
-uv run -m torchure.train.train --config configs/qwen3_dense_climbmix.json --steps 20
+uv run -m pluggy.train.train --config configs/qwen3_dense_climbmix.json --steps 20
 
-uv run torchrun --nproc-per-node 8 -m torchure.train.train \
+uv run torchrun --nproc-per-node 8 -m pluggy.train.train \
     --config configs/qwen3_dense_climbmix_ddp.json --steps 20
 
 ```

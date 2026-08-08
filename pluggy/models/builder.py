@@ -1,6 +1,6 @@
 import torch.nn as nn
 
-from torchure.models.qwen3.qwen3 import Qwen3
+from pluggy.models.qwen3.qwen3 import Qwen3
 
 MODEL_REGISTRY = {
     "qwen3_dense": Qwen3,

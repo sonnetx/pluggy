@@ -1,6 +1,6 @@
 # roadmap
 
-where torchure is going: a pure-pytorch training stack that composes every
+where pluggy is going: a pure-pytorch training stack that composes every
 major parallelism (DP/DDP, FSDP2, TP/SP, CP, EP, PP) over a named device mesh,
 and trains multiple model families (dense AR, MoE, masked-diffusion LMs)
 through the same trainer/objective/dataloader abstractions.
@@ -14,7 +14,7 @@ passes and the numbers are in CHANGES.md.
 
 these already shaped the code; write them down so future phases don't drift:
 
-1. **own the primitives.** all comm goes through `torchure/core/collective.py`
+1. **own the primitives.** all comm goes through `pluggy/core/collective.py`
    — nothing else touches `torch.distributed` comm ops directly. mesh, dtensor,
    fsdp2, tp, cp, ep are implemented here, not imported from
    `torch.distributed.*` wrappers. pytorch's versions are the reference to test
@@ -471,7 +471,7 @@ runs as a parallel track; each item unblocks or exercises a parallelism phase.
   the final-hidden path is what the fused-CE objective consumes, and it keeps
   `lm_head` intact for eval/generation;
 - a config dataclass per model (json still the surface format);
-- `parallel_plan()` or a registry entry in `torchure/parallelism/plans/`
+- `parallel_plan()` or a registry entry in `pluggy/parallelism/plans/`
   mapping module names → tp styles (colwise/rowwise/vocab), fsdp units, pp
   cut points, moe modules. plans live *next to the parallelism code*, keyed
   by model name — models stay parallelism-agnostic, plans stay model-aware.
@@ -499,7 +499,7 @@ per N steps, rank-0 only at first, dp-sharded later). deliberately minimal —
 no serving ambitions.
 
 **M6 — masked-diffusion LM (DLLM).** the objective abstraction in
-`torchure/objectives/` was built for this moment:
+`pluggy/objectives/` was built for this moment:
 - model: needs bidirectional attention — `is_causal=False` path through sdpa
   (the mask plumbing exists; add a `causal: bool` to the model config);
 - objective: sample masking ratio t per sequence, mask tokens, CE on masked

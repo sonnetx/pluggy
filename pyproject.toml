@@ -1,5 +1,5 @@
 [project]
-name = "torchure"
+name = "pluggy"
 version = "0.1.0"
 description = "training stack"
 authors = [{name="giyushino", email="allanzhang440@gmail.com" }]
@@ -27,7 +27,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["torchure*"]
+include = ["pluggy*"]
 
 [tool.ruff]
 line-length = 100

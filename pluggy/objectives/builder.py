@@ -4,7 +4,7 @@ we can have this because we want to
 decouple the models from the loss
 functions
 """
-from torchure.objectives.autoregressive import ARObjective
+from pluggy.objectives.autoregressive import ARObjective
 
 OBJECTIVE_REGISTRY = {
     "AR": ARObjective,

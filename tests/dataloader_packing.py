@@ -1,6 +1,6 @@
 """
 benchmark + correctness suite for the packing strategies in
-torchure.dataloader.packers (ListPacker / NumpyPacker / TensorPacker).
+pluggy.dataloader.packers (ListPacker / NumpyPacker / TensorPacker).
 
 two things matter and they're kept separate:
 
@@ -33,7 +33,7 @@ from statistics import median, pstdev
 
 import torch
 
-from torchure.dataloader.packers import BESTFIT_PACKERS, PACKERS
+from pluggy.dataloader.packers import BESTFIT_PACKERS, PACKERS
 
 
 EOS_ID = 0

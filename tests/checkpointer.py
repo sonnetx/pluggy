@@ -1,5 +1,5 @@
 """
-save -> load roundtrip for torchure/checkpoint/checkpointer.py.
+save -> load roundtrip for pluggy/checkpoint/checkpointer.py.
 
 exercises the layout the trainer writes (<run>/<step>/{model,optimizer,
 scheduler,dataloader}.pt), then restores every component into freshly
@@ -24,8 +24,8 @@ import torch.nn as nn
 
 from torchdata.stateful_dataloader import StatefulDataLoader
 
-from torchure.checkpoint.checkpointer import Checkpointer
-from torchure.optimizer.scheduler import WarmupStableDecaySchedulder
+from pluggy.checkpoint.checkpointer import Checkpointer
+from pluggy.optimizer.scheduler import WarmupStableDecaySchedulder
 
 
 def build_model(seed: int) -> nn.Module:
@@ -180,7 +180,7 @@ def check_completion_marker(tmp: str) -> None:
 
 
 def main() -> None:
-    tmp = tempfile.mkdtemp(prefix="torchure_ckpt_test_")
+    tmp = tempfile.mkdtemp(prefix="pluggy_ckpt_test_")
     try:
         check_roundtrip(tmp)
         check_completion_marker(tmp)

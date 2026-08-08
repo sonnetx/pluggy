@@ -1,5 +1,5 @@
 """
-parity tests for torchure/parallelism/data_parallel.py.
+parity tests for pluggy/parallelism/data_parallel.py.
 
 run (gloo/cpu, no gpus needed):
     uv run tests/data_parallel.py --world-size 4
@@ -35,9 +35,9 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 import torch.nn.functional as F
 
-from torchure.core.mesh import Mesh
-from torchure.models.qwen3.qwen3 import Qwen3
-from torchure.parallelism.data_parallel import DDP
+from pluggy.core.mesh import Mesh
+from pluggy.models.qwen3.qwen3 import Qwen3
+from pluggy.parallelism.data_parallel import DDP
 
 CFG = {
     "num_layers": 2,

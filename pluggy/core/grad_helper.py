@@ -2,7 +2,7 @@
 grad operations
 """
 import torch
-from torchure.core.collective import all_reduce
+from pluggy.core.collective import all_reduce
 
 
 def clip_grad_norm(params, mesh, max_norm, shard_dims=()) -> torch.Tensor:
