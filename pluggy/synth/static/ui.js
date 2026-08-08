@@ -49,14 +49,30 @@
     sync();
   }
 
-  /* jump list + scroll spy over [data-section] cards */
-  function initSectionNav() {
+  /* jump list + scroll spy over the *visible* [data-section] cards. mode
+   * switches hide whole card sets, so this is rebuildable rather than
+   * built once -- see window.pluggyUI.rebuildSectionNav. */
+  var cards = [], links = [], ticking = false;
+
+  function spy() {
+    ticking = false;
+    var line = 96, active = 0;
+    for (var i = 0; i < cards.length; i++) {
+      if (cards[i].getBoundingClientRect().top <= line) active = i;
+    }
+    links.forEach(function (a, i) {
+      if (i === active) a.setAttribute("aria-current", "true");
+      else a.removeAttribute("aria-current");
+    });
+  }
+
+  function rebuildSectionNav() {
     var host = document.getElementById("sectionnav");
     if (!host) return;
-    var cards = [].slice.call(document.querySelectorAll("[data-section]"));
-    if (!cards.length) return;
-
-    var links = cards.map(function (card, i) {
+    host.innerHTML = "";
+    cards = [].slice.call(document.querySelectorAll("[data-section]"))
+      .filter(function (c) { return c.offsetParent !== null; });  // skip hidden
+    links = cards.map(function (card, i) {
       if (!card.id) card.id = "sec-" + i;
       var a = document.createElement("a");
       a.className = "side-item sub";
@@ -65,28 +81,17 @@
       host.appendChild(a);
       return a;
     });
-
-    // spy: the active section is the last one whose top is above the fold line
-    var ticking = false;
-    function spy() {
-      ticking = false;
-      var line = 96, active = 0;
-      for (var i = 0; i < cards.length; i++) {
-        if (cards[i].getBoundingClientRect().top <= line) active = i;
-      }
-      links.forEach(function (a, i) {
-        if (i === active) a.setAttribute("aria-current", "true");
-        else a.removeAttribute("aria-current");
-      });
-    }
-    window.addEventListener("scroll", function () {
-      if (!ticking) { ticking = true; requestAnimationFrame(spy); }
-    }, { passive: true });
     spy();
   }
 
+  window.addEventListener("scroll", function () {
+    if (!ticking) { ticking = true; requestAnimationFrame(spy); }
+  }, { passive: true });
+
+  window.pluggyUI = { rebuildSectionNav: rebuildSectionNav };
+
   document.addEventListener("DOMContentLoaded", function () {
     initTheme();
-    initSectionNav();
+    rebuildSectionNav();
   });
 })();

@@ -119,8 +119,14 @@ body {
 .page-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 
 /* ================= cards ================= */
-.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+/* align-items:start so a short card sizes to its content instead of being
+ * stretched to match the tallest card in its row. */
+.cards {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px; align-items: start;
+}
 @media (max-width: 1040px) { .cards { grid-template-columns: minmax(0, 1fr); } }
+.cards.single { grid-template-columns: minmax(0, 1fr); max-width: 720px; }
 .card {
   background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r);
   box-shadow: var(--shadow); min-width: 0; scroll-margin-top: 72px;
@@ -133,8 +139,12 @@ body {
 .card-head h2 { font-size: 14px; font-weight: 600; margin: 0; letter-spacing: -0.005em; }
 .card-head .note { font-size: 12.5px; color: var(--ink-3); }
 .card-head .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-.card-body { padding: 16px; }
-.card-body.flush { padding: 0; }
+/* one vertical rhythm for every card body: children are spaced by the flex
+ * gap, never by per-element margins, so rows line up across cards. */
+.card-body { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.card-body.flush { padding: 0; display: block; }
+.card-body.checks { gap: 11px; }
+.card-body > .spacer { flex: 1; }
 
 /* segmented control, as in the chart header */
 .seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
@@ -148,8 +158,12 @@ body {
 .seg button[aria-pressed="true"] { background: var(--active); color: var(--ink); }
 
 /* ================= form fields ================= */
-label { display: block; color: var(--ink-2); font-size: 12.5px; margin: 14px 0 5px; }
-.field:first-child > label, .row:first-child .field > label, .card-body > label:first-child { margin-top: 0; }
+/* labels are single-line by contract: a wrapping label would push its input
+ * down and break alignment with its neighbours in the same row. */
+label {
+  display: block; color: var(--ink-2); font-size: 12.5px; margin: 0 0 6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .hint { color: var(--ink-3); }
 
 input[type=text], input[type=number], textarea, select {
@@ -173,15 +187,19 @@ select {
   background-position: calc(100% - 16px) 52%, calc(100% - 11px) 52%;
   background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
 }
-.row { display: flex; gap: 12px; }
-.row > .field { flex: 1; min-width: 0; }
+/* equal-width columns regardless of content: flex-basis 0 + min-width 0 stops
+ * a long value or a wide select from stealing width from its siblings. */
+.row { display: flex; gap: 12px; align-items: flex-start; }
+.row > .field { flex: 1 1 0; min-width: 0; }
+.card-head .field { margin: 0; }
 
-.check { display: flex; align-items: flex-start; gap: 9px; margin: 12px 0 0; font-size: 13.5px; }
+.check { display: flex; align-items: flex-start; gap: 9px; margin: 0; font-size: 13.5px; }
 .check input {
   appearance: none; flex: none; width: 15px; height: 15px; margin: 2px 0 0;
   border: 1px solid var(--ink-3); border-radius: 4px; background: var(--paper);
   cursor: pointer; position: relative; transition: background 90ms ease, border-color 90ms ease;
 }
+.check label { white-space: normal; overflow: visible; }
 .check input:checked { background: var(--ink); border-color: var(--ink); }
 .check input:checked::after {
   content: ""; position: absolute; left: 4.5px; top: 1px; width: 3.5px; height: 8px;
@@ -209,6 +227,32 @@ button.icon svg { width: 16px; height: 16px; stroke: currentColor; fill: none; s
 
 .msg { font-size: 12.5px; font-family: var(--mono); color: var(--ink-3); }
 .msg.err { color: var(--paper); background: var(--ink); padding: 4px 9px; border-radius: 6px; }
+
+/* ================= option picker ================= */
+.picker { border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+.picker .opt {
+  display: flex; align-items: center; gap: 11px; padding: 12px 14px;
+  cursor: pointer; border-bottom: 1px solid var(--rule-soft);
+  transition: background 90ms ease;
+}
+.picker .opt:last-child { border-bottom: none; }
+.picker .opt:hover { background: var(--hover); }
+.picker .opt.on { background: var(--active); }
+.picker .opt input {
+  appearance: none; flex: none; width: 15px; height: 15px; margin: 0;
+  border: 1px solid var(--ink-3); border-radius: 50%; background: var(--paper);
+  cursor: pointer; position: relative;
+}
+.picker .opt input:checked { border-color: var(--ink); border-width: 4.5px; }
+.picker .opt input:focus-visible { outline: 2px solid var(--ink-3); outline-offset: 2px; }
+.picker .opt .body { min-width: 0; }
+.picker .opt .name { font-size: 13.5px; font-weight: 550; color: var(--ink); }
+.picker .opt .desc { font-size: 12.5px; color: var(--ink-3); }
+.picker .opt .val {
+  margin-left: auto; padding-left: 12px; text-align: right; white-space: nowrap;
+  font: 12.5px/1.4 var(--mono); color: var(--ink-2); font-variant-numeric: tabular-nums;
+}
+.picker .opt .val small { display: block; color: var(--ink-3); font-size: 11.5px; }
 
 /* ================= tables ================= */
 table.data { width: 100%; border-collapse: collapse; font-size: 13.5px; }
