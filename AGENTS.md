@@ -84,3 +84,9 @@ and swapping the `"model"` block:
 - changing numerics in a way that could move throughput or loss curves
   (attention scaling, rope base, init std) gets a `notes/CHANGES.md` entry —
   that file is this repo's measure-before/after discipline.
+
+## wiring up a new dataset
+
+see the `init-dataset` skill (`.claude/skills/init-dataset/SKILL.md`) —
+covers finding the right `text_field`, subset/split, and tokenizer
+compatibility for a new HF dataset before writing its `"data"` config block.
