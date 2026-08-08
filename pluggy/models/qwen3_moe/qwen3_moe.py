@@ -8,14 +8,15 @@ block (roadmap M4 / phase 6 single-gpu path):
   dial it down), optional norm_topk_prob
 - N routed SwiGLU experts, packed as 3D weight tensors — no shared expert
   (qwen3-moe deliberately dropped the qwen2.5 shared expert)
-- dropless dispatch: every selected (token, expert) pair runs; loop over
-  hit experts for correctness (grouped-GEMM can replace the inner path later)
+- dropless dispatch via `pluggy.kernels.moe_expert_ffn` (sorted grouped_mm
+  on cuda, loop fallback elsewhere)
 - load-balancing aux loss (Switch-Transformer style) + router z-loss,
   exposed via `aux_loss()` so the AR objective stays model-agnostic
 - decoder_sparse_step / mlp_only_layers keep the HF knobs for dense layers
   mixed into the stack
 
-no framework imports — torch + stdlib only.
+torch + stdlib only inside the arch; fused elementwise/dispatch live in
+`pluggy.kernels` (same rule as the fused linear-CE).
 """
 
 from __future__ import annotations
@@ -24,17 +25,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
-def rotate_half(x: torch.Tensor) -> torch.Tensor:
-    x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2 :]
-    return torch.cat((-x2, x1), dim=-1)
-
-
-def apply_rotary(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
-    cos = cos.to(x.dtype)
-    sin = sin.to(x.dtype)
-    return (x * cos) + (rotate_half(x) * sin)
+from pluggy.kernels.moe import moe_expert_ffn
+from pluggy.kernels.rope import apply_rotary
+from pluggy.kernels.swiglu import swiglu_mul
 
 
 class Qwen3RotaryEmbedding(nn.Module):
@@ -153,7 +146,7 @@ class SwiGLU(nn.Module):
         self.down_proj = nn.Linear(ffn_dim, hidden_dim, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.down_proj(F.silu(self.gate_proj(x)) * self.up_proj(x))
+        return self.down_proj(swiglu_mul(self.gate_proj(x), self.up_proj(x)))
 
 
 class Qwen3MoeTopKRouter(nn.Module):
@@ -188,8 +181,8 @@ class Qwen3MoeTopKRouter(nn.Module):
 class Qwen3MoeExperts(nn.Module):
     """
     packed expert weights as 3D tensors (E, …). dropless: every selected
-    (token, expert) pair contributes. loop over hit experts for correctness;
-    a grouped-GEMM path can replace the body later without changing the API.
+    (token, expert) pair contributes. dispatch goes through
+    `pluggy.kernels.moe_expert_ffn` (sorted grouped_mm on cuda, loop fallback).
     """
 
     def __init__(self, emb_dim: int, moe_ffn_dim: int, num_experts: int):
@@ -211,27 +204,13 @@ class Qwen3MoeExperts(nn.Module):
         top_indices: torch.Tensor,     # (T, K)
         top_weights: torch.Tensor,     # (T, K)
     ) -> torch.Tensor:
-        T, H = hidden_states.shape
-        out = torch.zeros(T, H, device=hidden_states.device, dtype=hidden_states.dtype)
-
-        # expert_mask: (E, K, T)
-        expert_mask = F.one_hot(top_indices, num_classes=self.num_experts)  # (T, K, E)
-        expert_mask = expert_mask.permute(2, 1, 0)  # (E, K, T)
-        # which experts got at least one token
-        hit = expert_mask.sum(dim=(-1, -2)).nonzero(as_tuple=False).flatten()
-
-        for e in hit.tolist():
-            # positions in the top-k axis and token ids routed to expert e
-            k_pos, token_idx = torch.where(expert_mask[e])
-            if token_idx.numel() == 0:
-                continue
-            tok = hidden_states[token_idx]  # (N, H)
-            gate, up = F.linear(tok, self.gate_up_proj[e]).chunk(2, dim=-1)
-            y = F.linear(F.silu(gate) * up, self.down_proj[e])
-            y = y * top_weights[token_idx, k_pos, None]
-            out.index_add_(0, token_idx, y.to(dtype=out.dtype))
-
-        return out
+        return moe_expert_ffn(
+            hidden_states,
+            top_indices,
+            top_weights,
+            self.gate_up_proj,
+            self.down_proj,
+        )
 
 
 class Qwen3MoeSparseMLP(nn.Module):

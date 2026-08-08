@@ -20,7 +20,8 @@ vs the llama/qwen blocks already in this repo:
 - optional attention_k_eq_v (reuse K as V on full layers) and double-wide
   MLP on KV-shared layers
 
-no framework imports — torch + stdlib only.
+torch + stdlib for the arch; fused rope / geglu / softcap live in
+`pluggy.kernels`.
 """
 
 from __future__ import annotations
@@ -29,21 +30,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
-def rotate_half(x: torch.Tensor) -> torch.Tensor:
-    x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2 :]
-    return torch.cat((-x2, x1), dim=-1)
-
-
-def apply_rotary(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
-    cos = cos.to(x.dtype)
-    sin = sin.to(x.dtype)
-    return (x * cos) + (rotate_half(x) * sin)
-
-
-def gelu_pytorch_tanh(x: torch.Tensor) -> torch.Tensor:
-    return F.gelu(x, approximate="tanh")
+from pluggy.kernels.rope import apply_rotary
+from pluggy.kernels.softcap import logit_softcap
+from pluggy.kernels.swiglu import geglu_mul
 
 
 def default_layer_types(num_layers: int, pattern: int = 6) -> list[str]:
@@ -134,9 +123,7 @@ class GeGLU(nn.Module):
         self.down_proj = nn.Linear(ffn_dim, hidden_dim, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.down_proj(
-            gelu_pytorch_tanh(self.gate_proj(x)) * self.up_proj(x)
-        )
+        return self.down_proj(geglu_mul(self.gate_proj(x), self.up_proj(x)))
 
 
 class Gemma4Attention(nn.Module):
@@ -330,7 +317,7 @@ class Gemma4TransformerBlock(nn.Module):
 
         if self.ple_dim > 0 and ple_input is not None:
             residual = x
-            gated = gelu_pytorch_tanh(self.ple_gate(x)) * ple_input
+            gated = F.gelu(self.ple_gate(x), approximate="tanh") * ple_input
             x = residual + self.ple_norm(self.ple_proj(gated))
 
         return x
@@ -494,12 +481,6 @@ class Gemma4(nn.Module):
             if block.ple_dim > 0:
                 block.ple_proj.weight.data.mul_(residual_scale)
 
-    def _softcap(self, logits: torch.Tensor) -> torch.Tensor:
-        cap = self.final_logit_softcapping
-        if cap is None:
-            return logits
-        return torch.tanh(logits / cap) * cap
-
     def forward(
         self,
         x: torch.Tensor,
@@ -547,7 +528,7 @@ class Gemma4(nn.Module):
             return self.norm(h)
 
         logits = self.lm_head(self.norm(h))
-        logits = self._softcap(logits)
+        logits = logit_softcap(logits, self.final_logit_softcapping)
         if return_hidden_states:
             return logits, hidden_states
         return logits

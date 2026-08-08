@@ -11,21 +11,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
-def rotate_half(x: torch.Tensor) -> torch.Tensor:
-    """
-    tensor = [a, b, c, d, e, f, g, h]
-    rotate_half(tensor) = [-e, -f, -g, -h, a, b, c, d]
-    """
-    x1 = x[...,:x.shape[-1] // 2]
-    x2 = x[...,x.shape[-1] // 2:]
-    return torch.cat((-x2, x1), dim=-1)
-
-
-def apply_rotary(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
-    cos = cos.to(x.dtype)
-    sin = sin.to(x.dtype)
-    return (x * cos) + (rotate_half(x) * sin)
+from pluggy.kernels.rope import apply_rotary
+from pluggy.kernels.swiglu import swiglu_mul
 
 
 class Qwen3RotaryEmbedding(nn.Module):
@@ -225,9 +212,7 @@ class SwiGLU(nn.Module):
         self.down_proj = nn.Linear(ffn_dim, hidden_dim, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.down_proj(
-            nn.functional.silu(self.gate_proj(x)) * self.up_proj(x)
-        )
+        return self.down_proj(swiglu_mul(self.gate_proj(x), self.up_proj(x)))
 
     
 class Qwen3TransformerBlock(nn.Module):
