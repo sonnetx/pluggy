@@ -63,3 +63,5 @@ jobs:
         run: uv run --no-sync tests/grad_helper.py --world-size 2
       - name: synth pipeline (stubbed llm, no network)
         run: uv run --no-sync tests/synth.py
+      - name: synth frontend api (localhost, no llm)
+        run: uv run --no-sync tests/synth_server.py

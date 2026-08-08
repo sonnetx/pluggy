@@ -1,0 +1,220 @@
+"""
+minimal frontend for the synth pipeline: a stdlib-only http server (no new
+deps) that serves a single-page config editor and drives runs.
+
+    uv run -m pluggy.synth.server            # http://127.0.0.1:8642
+    uv run -m pluggy.synth.server --port 9000
+
+run it from the repo root: config files go to ./configs and output dirs are
+resolved relative to the cwd, same as the cli. runs launch as a subprocess
+of this server (`python -m pluggy.synth.run`), so the server needs the
+[synth] extra + ANTHROPIC_API_KEY in its environment to actually generate.
+
+api (all json):
+    GET  /api/meta            styles + saved synth configs
+    GET  /api/config/<name>   load a saved config
+    POST /api/config          {"name": ..., "config": {...}} -> save
+    POST /api/run             {"name": ...} -> start a run
+    POST /api/stop            terminate the running subprocess
+    GET  /api/status          running?, exit code, log tail, progress
+"""
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+import threading
+
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+from pluggy.synth.generate import STYLES
+
+STATIC = Path(__file__).parent / "static"
+CONFIG_DIR = Path("configs")
+LOG_TAIL_CHARS = 4000
+
+_run_lock = threading.Lock()
+_run = {"proc": None, "config": None, "log": None}
+
+
+def _is_synth_config(path: Path) -> bool:
+    try:
+        with open(path) as f:
+            return "seed_domains" in json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return False
+
+
+def _validate(cfg: dict) -> str | None:
+    """returns an error string or None. keep in sync with pipeline.py."""
+    domains = cfg.get("seed_domains")
+    if not isinstance(domains, list) or not domains or \
+            not all(isinstance(d, str) and d.strip() for d in domains):
+        return "seed_domains must be a non-empty list of strings"
+    if not isinstance(cfg.get("output", {}).get("dir"), str):
+        return "output.dir is required"
+    styles = cfg.get("generation", {}).get("styles", [])
+    unknown = [s for s in styles if s not in STYLES]
+    if unknown:
+        return f"unknown styles: {unknown}"
+    q = cfg.get("quality", {})
+    if q.get("enabled", True) and not (
+            1 <= q.get("refine_min", 5) <= q.get("min_score", 7) <= 10):
+        return "quality thresholds must satisfy 1 <= refine_min <= min_score <= 10"
+    return None
+
+
+def _progress(config_path: Path) -> dict:
+    """best-effort progress from the run's output dir (state + shards)."""
+    try:
+        with open(config_path) as f:
+            out_dir = Path(json.load(f)["output"]["dir"])
+    except (OSError, json.JSONDecodeError, KeyError):
+        return {}
+    prog = {"shards": len(list(out_dir.glob("shard-*.jsonl")))}
+    state_path = out_dir / "state.json"
+    if state_path.exists():
+        try:
+            with open(state_path) as f:
+                state = json.load(f)
+            prog["topics"] = len(state["topics"] or [])
+            prog["jobs_done"] = len(state["done"])
+        except (json.JSONDecodeError, KeyError):
+            pass
+    manifest_path = out_dir / "manifest.json"
+    if manifest_path.exists():
+        try:
+            with open(manifest_path) as f:
+                prog["manifest"] = json.load(f)
+        except json.JSONDecodeError:
+            pass
+    return prog
+
+
+class Handler(BaseHTTPRequestHandler):
+    # quiet request logging; the terminal is for pipeline output
+    def log_message(self, fmt, *args):
+        pass
+
+    def _send(self, code: int, body: bytes, ctype: str):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _json(self, obj, code: int = 200):
+        self._send(code, json.dumps(obj).encode(), "application/json")
+
+    def _error(self, msg: str, code: int = 400):
+        self._json({"error": msg}, code)
+
+    def _body(self):
+        length = int(self.headers.get("Content-Length", 0))
+        return json.loads(self.rfile.read(length) or b"{}")
+
+    @staticmethod
+    def _safe_name(name: str) -> str | None:
+        name = name.removesuffix(".json")
+        return name if re.fullmatch(r"[A-Za-z0-9_\-]+", name) else None
+
+    def do_GET(self):
+        if self.path in ("/", "/index.html"):
+            self._send(200, (STATIC / "index.html").read_bytes(),
+                       "text/html; charset=utf-8")
+        elif self.path == "/api/meta":
+            configs = sorted(
+                p.stem for p in CONFIG_DIR.glob("*.json") if _is_synth_config(p)
+            ) if CONFIG_DIR.exists() else []
+            self._json({"styles": STYLES, "configs": configs})
+        elif self.path.startswith("/api/config/"):
+            name = self._safe_name(self.path.removeprefix("/api/config/"))
+            path = CONFIG_DIR / f"{name}.json" if name else None
+            if path is None or not path.exists():
+                return self._error("config not found", 404)
+            with open(path) as f:
+                self._json(json.load(f))
+        elif self.path == "/api/status":
+            with _run_lock:
+                proc, log, cfg = _run["proc"], _run["log"], _run["config"]
+            status = {"running": False, "exit_code": None, "log_tail": "",
+                      "config": str(cfg) if cfg else None, "progress": {}}
+            if proc is not None:
+                code = proc.poll()
+                status["running"] = code is None
+                status["exit_code"] = code
+            if log is not None and log.exists():
+                status["log_tail"] = log.read_text()[-LOG_TAIL_CHARS:]
+            if cfg is not None:
+                status["progress"] = _progress(cfg)
+            self._json(status)
+        else:
+            self._error("not found", 404)
+
+    def do_POST(self):
+        try:
+            body = self._body()
+        except json.JSONDecodeError:
+            return self._error("invalid json body")
+
+        if self.path == "/api/config":
+            name = self._safe_name(body.get("name", ""))
+            if name is None:
+                return self._error("name must be [A-Za-z0-9_-]+")
+            cfg = body.get("config")
+            err = _validate(cfg) if isinstance(cfg, dict) else "config must be an object"
+            if err:
+                return self._error(err)
+            CONFIG_DIR.mkdir(exist_ok=True)
+            path = CONFIG_DIR / f"{name}.json"
+            with open(path, "w") as f:
+                json.dump(cfg, f, indent=2)
+            self._json({"saved": str(path)})
+
+        elif self.path == "/api/run":
+            name = self._safe_name(body.get("name", ""))
+            path = CONFIG_DIR / f"{name}.json" if name else None
+            if path is None or not path.exists():
+                return self._error("config not found; save it first", 404)
+            with _run_lock:
+                if _run["proc"] is not None and _run["proc"].poll() is None:
+                    return self._error("a run is already in progress", 409)
+                log = Path(f"synth_run_{name}.log")
+                logf = open(log, "w")
+                _run["proc"] = subprocess.Popen(
+                    [sys.executable, "-m", "pluggy.synth.run", "--config", str(path)],
+                    stdout=logf, stderr=subprocess.STDOUT,
+                )
+                logf.close()  # child holds its own handle
+                _run["config"], _run["log"] = path, log
+            self._json({"started": str(path), "log": str(log)})
+
+        elif self.path == "/api/stop":
+            with _run_lock:
+                proc = _run["proc"]
+                if proc is None or proc.poll() is not None:
+                    return self._error("no run in progress", 409)
+                proc.terminate()
+            self._json({"stopped": True})
+
+        else:
+            self._error("not found", 404)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=8642)
+    parser.add_argument("--host", default="127.0.0.1")  # local tool, keep it local
+    args = parser.parse_args()
+    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    print(f"synth frontend: http://{args.host}:{args.port}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        server.shutdown()
+
+
+if __name__ == "__main__":
+    main()

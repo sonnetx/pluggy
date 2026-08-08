@@ -102,6 +102,17 @@ size. the llm sits behind a two-method interface (`generate_text` /
 `generate_json`), so the orchestration is fully testable without network
 (`tests/synth.py`) and other providers are a small adapter away.
 
+### frontend
+
+a minimal web ui covers every pipeline knob (domains, styles, judge
+thresholds, dedup, sharding), saves/loads configs under `configs/`, and
+launches + monitors runs (live log tail, shard/job progress). stdlib-only
+http server, no new deps:
+
+```bash
+uv run -m pluggy.synth.server    # http://127.0.0.1:8642, run from repo root
+```
+
 ## tests
 
 no gpus needed for any of these except the last (gloo/cpu, `mp.spawn`):
@@ -113,6 +124,7 @@ uv run tests/dataloader_packing.py --check    # packer equality + invariants
 uv run tests/checkpointer.py                  # save/load roundtrip + prefetcher exact resume
 uv run tests/scheduler.py                     # wsd + cosine shapes, resume parity
 uv run tests/synth.py                         # synth pipeline (stubbed llm, no network)
+uv run tests/synth_server.py                  # synth frontend api (localhost, no llm)
 uv run tests/data_parallel.py --world-size 4  # ddp grad parity vs single process
 uv run tests/fsdp2.py --world-size 4          # fsdp2 parity + memory invariants
 uv run tests/grad_helper.py --world-size 2    # grad clipping vs torch reference

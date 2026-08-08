@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pluggy synth</title>
+<style>
+  :root {
+    --bg: #101214; --panel: #16191c; --edge: #262b30;
+    --text: #d6dce2; --dim: #7d8791; --accent: #7cc4a0; --bad: #e08585;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  h1 span { color: var(--accent); }
+  .sub { color: var(--dim); margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+  fieldset {
+    background: var(--panel); border: 1px solid var(--edge);
+    border-radius: 8px; padding: 12px 14px 14px; margin: 0; min-width: 0;
+  }
+  legend { color: var(--accent); padding: 0 6px; font-size: 13px; }
+  label { display: block; color: var(--dim); font-size: 12px; margin: 10px 0 2px; }
+  label:first-of-type { margin-top: 2px; }
+  input[type=text], input[type=number], textarea, select {
+    width: 100%; background: var(--bg); color: var(--text);
+    border: 1px solid var(--edge); border-radius: 5px; padding: 6px 8px;
+    font: inherit;
+  }
+  textarea { resize: vertical; }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; min-width: 0; }
+  .check { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; color: var(--text); font-size: 13px; }
+  .check input { accent-color: var(--accent); }
+  .check small { color: var(--dim); }
+  .bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 18px 0 10px; }
+  button {
+    background: var(--panel); color: var(--text); border: 1px solid var(--edge);
+    border-radius: 6px; padding: 8px 16px; font: inherit; cursor: pointer;
+  }
+  button.primary { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  #msg { font-size: 13px; }
+  #msg.ok { color: var(--accent); } #msg.err { color: var(--bad); }
+  #preview { color: var(--dim); font-size: 13px; margin-top: 6px; }
+  #preview b { color: var(--text); font-weight: 600; }
+  pre#log {
+    background: var(--panel); border: 1px solid var(--edge); border-radius: 8px;
+    padding: 12px; min-height: 90px; max-height: 320px; overflow: auto;
+    white-space: pre-wrap; word-break: break-word; font-size: 12px; color: var(--dim);
+  }
+  #runstats { font-size: 13px; margin: 6px 0; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+         background: var(--dim); margin-right: 6px; }
+  .dot.on { background: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>pluggy <span>synth</span></h1>
+  <div class="sub">pretraining as a service: configure a synthetic corpus, generate it, then train on the shards.</div>
+
+  <div class="grid">
+    <fieldset>
+      <legend>corpus</legend>
+      <label for="domains">seed domains (one per line)</label>
+      <textarea id="domains" rows="8"></textarea>
+      <div class="row">
+        <div>
+          <label for="subtopics">subtopics per domain</label>
+          <input type="number" id="subtopics" min="1" value="25">
+        </div>
+        <div>
+          <label for="docs_per_topic">docs per topic</label>
+          <input type="number" id="docs_per_topic" min="1" value="5">
+        </div>
+      </div>
+      <label>document styles</label>
+      <div id="styles"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>model</legend>
+      <div class="row">
+        <div>
+          <label for="model">model</label>
+          <input type="text" id="model" value="claude-opus-5">
+        </div>
+        <div>
+          <label for="seed">seed</label>
+          <input type="number" id="seed" value="0">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="max_tokens">max tokens per doc</label>
+          <input type="number" id="max_tokens" min="256" value="4096">
+        </div>
+        <div>
+          <label for="concurrency">concurrency</label>
+          <input type="number" id="concurrency" min="1" value="8">
+        </div>
+      </div>
+      <div class="check">
+        <input type="checkbox" id="fallbacks" checked>
+        <span>refusal fallbacks <small>(retry safety declines on a fallback model server-side)</small></span>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>quality</legend>
+      <div class="check" style="margin-top: 2px">
+        <input type="checkbox" id="q_enabled" checked>
+        <span>judge + refine loop</span>
+      </div>
+      <div class="row">
+        <div>
+          <label for="min_score">min score (keep at or above)</label>
+          <input type="number" id="min_score" min="1" max="10" value="7">
+        </div>
+        <div>
+          <label for="refine_min">refine floor (rewrite at or above)</label>
+          <input type="number" id="refine_min" min="1" max="10" value="5">
+        </div>
+        <div>
+          <label for="refine_rounds">max refine rounds</label>
+          <input type="number" id="refine_rounds" min="0" value="1">
+        </div>
+      </div>
+      <label>dedup</label>
+      <div class="row">
+        <div>
+          <label for="ngram">shingle ngram</label>
+          <input type="number" id="ngram" min="2" value="13">
+        </div>
+        <div>
+          <label for="jaccard">jaccard threshold</label>
+          <input type="number" id="jaccard" min="0.1" max="1" step="0.05" value="0.8">
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>output</legend>
+      <div class="row">
+        <div>
+          <label for="out_dir">output dir</label>
+          <input type="text" id="out_dir" value="data/synth_v0">
+        </div>
+        <div>
+          <label for="shard_docs">docs per shard</label>
+          <input type="number" id="shard_docs" min="1" value="500">
+        </div>
+      </div>
+      <label for="cfg_name">config name (saved to configs/&lt;name&gt;.json)</label>
+      <div class="row">
+        <div><input type="text" id="cfg_name" value="synth_pretrain"></div>
+        <div>
+          <select id="cfg_load"><option value="">load saved config...</option></select>
+        </div>
+      </div>
+      <div id="preview"></div>
+    </fieldset>
+  </div>
+
+  <div class="bar">
+    <button id="save">save config</button>
+    <button id="run" class="primary">save + run</button>
+    <button id="stop" disabled>stop</button>
+    <span id="msg"></span>
+  </div>
+
+  <div id="runstats"><span class="dot" id="dot"></span><span id="statline">idle</span></div>
+  <pre id="log">no run yet. after generating, train with:
+uv run -m pluggy.train.train --config configs/&lt;your_train_config&gt;.json
+(point data.data_files at the shard glob, e.g. "data/synth_v0/shard-*.jsonl")</pre>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const DEFAULT_DOMAINS = [
+  "computer science and programming", "mathematics", "physics",
+  "biology and medicine", "history", "economics and finance",
+  "engineering", "linguistics and writing",
+];
+let STYLE_NAMES = [];
+
+function buildConfig() {
+  const domains = $("domains").value.split("\n").map(s => s.trim()).filter(Boolean);
+  const styles = STYLE_NAMES.filter(s => $("style_" + s).checked);
+  return {
+    model: $("model").value.trim(),
+    fallbacks: $("fallbacks").checked,
+    seed: +$("seed").value,
+    seed_domains: domains,
+    taxonomy: { subtopics_per_domain: +$("subtopics").value },
+    generation: {
+      docs_per_topic: +$("docs_per_topic").value,
+      styles: styles,
+      max_tokens: +$("max_tokens").value,
+      concurrency: +$("concurrency").value,
+    },
+    quality: {
+      enabled: $("q_enabled").checked,
+      min_score: +$("min_score").value,
+      refine_min: +$("refine_min").value,
+      max_refine_rounds: +$("refine_rounds").value,
+    },
+    dedup: { ngram: +$("ngram").value, jaccard_threshold: +$("jaccard").value },
+    output: { dir: $("out_dir").value.trim(), shard_docs: +$("shard_docs").value },
+  };
+}
+
+function applyConfig(cfg) {
+  $("domains").value = (cfg.seed_domains || []).join("\n");
+  $("subtopics").value = cfg.taxonomy?.subtopics_per_domain ?? 25;
+  const g = cfg.generation || {};
+  $("docs_per_topic").value = g.docs_per_topic ?? 5;
+  $("max_tokens").value = g.max_tokens ?? 4096;
+  $("concurrency").value = g.concurrency ?? 8;
+  STYLE_NAMES.forEach(s => $("style_" + s).checked = !g.styles || g.styles.includes(s));
+  $("model").value = cfg.model ?? "claude-opus-5";
+  $("seed").value = cfg.seed ?? 0;
+  $("fallbacks").checked = cfg.fallbacks ?? true;
+  const q = cfg.quality || {};
+  $("q_enabled").checked = q.enabled ?? true;
+  $("min_score").value = q.min_score ?? 7;
+  $("refine_min").value = q.refine_min ?? 5;
+  $("refine_rounds").value = q.max_refine_rounds ?? 1;
+  const d = cfg.dedup || {};
+  $("ngram").value = d.ngram ?? 13;
+  $("jaccard").value = d.jaccard_threshold ?? 0.8;
+  $("out_dir").value = cfg.output?.dir ?? "data/synth_v0";
+  $("shard_docs").value = cfg.output?.shard_docs ?? 500;
+  preview();
+}
+
+function preview() {
+  const cfg = buildConfig();
+  const topics = cfg.seed_domains.length * cfg.taxonomy.subtopics_per_domain;
+  const docs = topics * cfg.generation.docs_per_topic;
+  const perDoc = 1 + (cfg.quality.enabled ? 1 + cfg.quality.max_refine_rounds : 0);
+  const calls = cfg.seed_domains.length + docs * perDoc;
+  const mtok = (docs * cfg.generation.max_tokens / 1e6).toFixed(1);
+  $("preview").innerHTML =
+    `<b>${topics}</b> topics, <b>${docs}</b> docs, up to <b>${mtok}M</b> generated tokens, ` +
+    `roughly <b>${calls}</b> llm calls worst case`;
+}
+
+function msg(text, ok) {
+  $("msg").textContent = text;
+  $("msg").className = ok ? "ok" : "err";
+}
+
+async function api(path, body) {
+  const resp = await fetch(path, body === undefined ? {} : {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data.error || resp.statusText);
+  return data;
+}
+
+async function save() {
+  const data = await api("/api/config", { name: $("cfg_name").value, config: buildConfig() });
+  msg("saved " + data.saved, true);
+  loadMeta();
+  return data;
+}
+
+async function poll() {
+  const s = await api("/api/status");
+  $("dot").className = "dot" + (s.running ? " on" : "");
+  $("stop").disabled = !s.running;
+  const p = s.progress || {};
+  const bits = [];
+  if (s.running) bits.push("running " + (s.config || ""));
+  else if (s.exit_code !== null && s.exit_code !== undefined)
+    bits.push("finished (exit " + s.exit_code + ")");
+  else bits.push("idle");
+  if (p.topics) bits.push(p.topics + " topics");
+  if (p.jobs_done !== undefined) bits.push(p.jobs_done + " jobs done");
+  if (p.shards !== undefined) bits.push(p.shards + " shards");
+  if (p.manifest) bits.push(`kept ${p.manifest.kept} / dropped ${p.manifest.dropped} / dupes ${p.manifest.dupes}`);
+  $("statline").textContent = bits.join(" | ");
+  if (s.log_tail) {
+    const log = $("log");
+    const pinned = log.scrollTop + log.clientHeight >= log.scrollHeight - 8;
+    log.textContent = s.log_tail;
+    if (pinned) log.scrollTop = log.scrollHeight;
+  }
+}
+
+async function loadMeta() {
+  const meta = await api("/api/meta");
+  if (!STYLE_NAMES.length) {
+    STYLE_NAMES = Object.keys(meta.styles);
+    $("styles").innerHTML = STYLE_NAMES.map(s =>
+      `<div class="check"><input type="checkbox" id="style_${s}" checked>` +
+      `<span>${s} <small>${meta.styles[s]}</small></span></div>`).join("");
+    document.querySelectorAll("#styles input").forEach(el => el.addEventListener("change", preview));
+  }
+  const sel = $("cfg_load");
+  const current = sel.value;
+  sel.innerHTML = '<option value="">load saved config...</option>' +
+    meta.configs.map(c => `<option>${c}</option>`).join("");
+  sel.value = current;
+}
+
+$("save").onclick = () => save().catch(e => msg(e.message, false));
+$("run").onclick = async () => {
+  try {
+    await save();
+    const data = await api("/api/run", { name: $("cfg_name").value });
+    msg("run started, logging to " + data.log, true);
+  } catch (e) { msg(e.message, false); }
+};
+$("stop").onclick = () => api("/api/stop", {}).then(() => msg("stop requested", true))
+                                              .catch(e => msg(e.message, false));
+$("cfg_load").onchange = async () => {
+  const name = $("cfg_load").value;
+  if (!name) return;
+  try {
+    applyConfig(await api("/api/config/" + name));
+    $("cfg_name").value = name;
+    msg("loaded " + name, true);
+  } catch (e) { msg(e.message, false); }
+};
+document.querySelectorAll("input, textarea").forEach(el => el.addEventListener("input", preview));
+
+$("domains").value = DEFAULT_DOMAINS.join("\n");
+loadMeta().then(preview).catch(e => msg(e.message, false));
+setInterval(() => poll().catch(() => {}), 2000);
+poll().catch(() => {});
+</script>
+</body>
+</html>
