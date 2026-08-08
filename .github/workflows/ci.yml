@@ -59,7 +59,7 @@ jobs:
         run: uv run --no-sync tests/dtensor.py --world-size 4
       - name: ddp grad parity (gloo, 4 ranks)
         run: uv run --no-sync tests/data_parallel.py --world-size 4
-      - name: fsdp2 parity + memory invariants (gloo, 4 ranks)
+      - name: fsdp2 parity + memory invariants + compile (gloo, 4 ranks)
         run: uv run --no-sync tests/fsdp2.py --world-size 4
       - name: grad clipping (gloo, 2 ranks)
         run: uv run --no-sync tests/grad_helper.py --world-size 2

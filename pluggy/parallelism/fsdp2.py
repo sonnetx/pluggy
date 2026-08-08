@@ -66,6 +66,7 @@ registered once and never removed. checkpointing a sharded model is phase
 """
 
 import torch
+import torch._dynamo
 import torch.nn as nn
 
 from pluggy.core.collective import MeshLike, all_gather, broadcast, reduce_scatter
@@ -179,16 +180,36 @@ class FSDP2:
                     lambda p, ps=ps, unit=unit: self._on_grad_ready(ps, unit)
                 )
 
+    # every hook body below is hidden from dynamo. nn.Module.compile() compiles
+    # _call_impl, which RUNS THE HOOKS, so without this the unshard lands inside
+    # the traced graph -- and `p.data = ...` lowers to a set_ on a graph input
+    # that also gets its metadata mutated, which AOTAutograd rejects outright:
+    #
+    #   AssertionError: Encountered a set_ on a graph input, but the input has
+    #   other mutations that we cannot keep in the graph. mutates_metadata=True
+    #
+    # torch._dynamo.disable makes dynamo graph-break at the hook and run it
+    # eagerly, so the storage juggling stays where it belongs (between graphs)
+    # and the block body still compiles as one region. this is the same policy
+    # upstream applies to its own fsdp2 (torch._dynamo.config.skip_fsdp_hooks,
+    # default True -- which only covers torch.distributed's hooks, not ours).
+    #
+    # the resharded param never appears in a graph: at trace time p.data is the
+    # gathered full tensor, and it is full for every compiled forward, so shapes
+    # and guards stay stable across the resize_(0) / re-gather cycle.
+    @torch._dynamo.disable
     def _unshard(self, unit: _Unit) -> None:
         for ps in unit.params:
             ps.unshard(self.mesh, self.dim)
 
+    @torch._dynamo.disable
     def _reshard_after_forward(self, unit: _Unit) -> None:
         # p.data stays pointed at the (empty) full tensor: a use before the
         # pre-backward re-gather must crash, not silently read a shard
         for ps in unit.params:
             ps.free_full()
 
+    @torch._dynamo.disable
     def _on_grad_ready(self, ps: _ParamState, unit: _Unit) -> None:
         # AccumulateGrad fired: ps.param.grad holds the full grad for this
         # microbatch (both contributions already merged for the tied

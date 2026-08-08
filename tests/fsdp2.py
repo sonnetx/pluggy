@@ -316,6 +316,42 @@ def test_clip_grad_norm(mesh, dim):
     assert_grads_match_reference(model, reference, mesh, dim)
 
 
+def test_compile_parity(mesh, dim):
+    """
+    the trainer's real order -- FSDP2(model) then block.compile() -- must
+    still produce the reference grads.
+
+    this is a regression test for a hard failure, not a numerical one:
+    nn.Module.compile() compiles _call_impl, hooks included, so dynamo used
+    to trace the unshard hook and AOTAutograd rejected the graph outright
+    ("Encountered a set_ on a graph input ... mutates_metadata=True") --
+    every fsdp2 run with compile on died in the first microbatch. the fix is
+    torch._dynamo.disable on the hook bodies in fsdp2.py; drop it and this
+    test raises BackendCompilerFailed rather than mismatching by an epsilon.
+
+    tolerances are the eager ones: inductor reassociates reductions, but on
+    a model this small at fp32 the drift stays well inside them.
+    """
+    model = build_model(seed=dist.get_rank())
+    fsdp = FSDP2(model, mesh, dim)
+    for block in model.blocks:
+        block.compile()
+
+    reference = build_model(seed=0)
+    batch = global_batch(mesh.size(dim))
+    loss_fn(reference, batch).backward()
+
+    local = batch[mesh.coordinate(dim)].unsqueeze(0)
+    # two cycles: the first traces, the second must hit the compiled code
+    # with the params freshly re-gathered into the same storages
+    for cycle in range(2):
+        loss_fn(model, local).backward()
+        fsdp.sync()
+        assert not grad_mismatches(model, reference, mesh, dim), f"cycle {cycle}"
+        for p in model.parameters():
+            p.grad = None
+
+
 def test_noop_at_size_1(mesh, dim):
     # a mesh where the shard axis has size 1: the ctor must be a total
     # no-op -- params untouched, no hooks, forward works
@@ -342,6 +378,7 @@ TESTS = [
     ("test_multi_step", test_multi_step),
     ("test_storage_freed", test_storage_freed),
     ("test_clip_grad_norm", test_clip_grad_norm),
+    ("test_compile_parity", test_compile_parity),
     ("test_noop_at_size_1", test_noop_at_size_1),
 ]
 

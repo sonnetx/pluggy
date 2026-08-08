@@ -32,8 +32,8 @@ build-backend = "setuptools.build_meta"
 include = ["pluggy*"]
 
 [tool.setuptools.package-data]
-# the synth frontend's single-page ui, served by pluggy/synth/server.py
-"pluggy.synth" = ["static/*.html"]
+# the web ui (pages + stylesheet), served by pluggy/synth/server.py
+"pluggy.synth" = ["static/*"]
 
 [tool.ruff]
 line-length = 100

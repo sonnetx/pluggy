@@ -1,6 +1,9 @@
 """
-minimal frontend for the synth pipeline: a stdlib-only http server (no new
-deps) that serves a single-page config editor and drives runs.
+minimal frontend for pluggy: a stdlib-only http server (no new deps) serving
+two pages off a shared stylesheet --
+
+    /        synthetic corpus config editor, drives generation runs
+    /train   training run composer (ui only so far; no api behind it yet)
 
     uv run -m pluggy.synth.server            # http://127.0.0.1:8642
     uv run -m pluggy.synth.server --port 9000
@@ -35,6 +38,22 @@ from pluggy.synth.generate import STYLES
 STATIC = Path(__file__).parent / "static"
 CONFIG_DIR = Path("configs")
 LOG_TAIL_CHARS = 4000
+
+# explicit allowlist rather than mapping urls onto the filesystem: the whole
+# static dir is three files, and this way there is no traversal to get wrong.
+PAGES = {
+    "/": "index.html",
+    "/index.html": "index.html",
+    "/train": "train.html",
+    "/train.html": "train.html",
+    "/theme.css": "theme.css",
+    "/ui.js": "ui.js",
+}
+CONTENT_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+}
 
 _run_lock = threading.Lock()
 _run = {"proc": None, "config": None, "log": None}
@@ -127,9 +146,10 @@ class Handler(BaseHTTPRequestHandler):
         return name if re.fullmatch(r"[A-Za-z0-9_\-]+", name) else None
 
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
-            self._send(200, (STATIC / "index.html").read_bytes(),
-                       "text/html; charset=utf-8")
+        if self.path in PAGES:
+            name = PAGES[self.path]
+            self._send(200, (STATIC / name).read_bytes(),
+                       CONTENT_TYPES[Path(name).suffix])
         elif self.path == "/api/meta":
             configs = sorted(
                 p.stem for p in CONFIG_DIR.glob("*.json") if _is_synth_config(p)

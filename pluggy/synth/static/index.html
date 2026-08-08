@@ -3,196 +3,238 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>pluggy synth</title>
-<style>
-  :root {
-    --bg: #101214; --panel: #16191c; --edge: #262b30;
-    --text: #d6dce2; --dim: #7d8791; --accent: #7cc4a0; --bad: #e08585;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  }
-  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
-  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
-  h1 span { color: var(--accent); }
-  .sub { color: var(--dim); margin-bottom: 20px; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
-  fieldset {
-    background: var(--panel); border: 1px solid var(--edge);
-    border-radius: 8px; padding: 12px 14px 14px; margin: 0; min-width: 0;
-  }
-  legend { color: var(--accent); padding: 0 6px; font-size: 13px; }
-  label { display: block; color: var(--dim); font-size: 12px; margin: 10px 0 2px; }
-  label:first-of-type { margin-top: 2px; }
-  input[type=text], input[type=number], textarea, select {
-    width: 100%; background: var(--bg); color: var(--text);
-    border: 1px solid var(--edge); border-radius: 5px; padding: 6px 8px;
-    font: inherit;
-  }
-  textarea { resize: vertical; }
-  .row { display: flex; gap: 10px; }
-  .row > div { flex: 1; min-width: 0; }
-  .check { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; color: var(--text); font-size: 13px; }
-  .check input { accent-color: var(--accent); }
-  .check small { color: var(--dim); }
-  .bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 18px 0 10px; }
-  button {
-    background: var(--panel); color: var(--text); border: 1px solid var(--edge);
-    border-radius: 6px; padding: 8px 16px; font: inherit; cursor: pointer;
-  }
-  button.primary { border-color: var(--accent); color: var(--accent); }
-  button:disabled { opacity: 0.4; cursor: default; }
-  #msg { font-size: 13px; }
-  #msg.ok { color: var(--accent); } #msg.err { color: var(--bad); }
-  #preview { color: var(--dim); font-size: 13px; margin-top: 6px; }
-  #preview b { color: var(--text); font-weight: 600; }
-  pre#log {
-    background: var(--panel); border: 1px solid var(--edge); border-radius: 8px;
-    padding: 12px; min-height: 90px; max-height: 320px; overflow: auto;
-    white-space: pre-wrap; word-break: break-word; font-size: 12px; color: var(--dim);
-  }
-  #runstats { font-size: 13px; margin: 6px 0; }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-         background: var(--dim); margin-right: 6px; }
-  .dot.on { background: var(--accent); }
-</style>
+<title>pluggy — data generation</title>
+<link rel="stylesheet" href="/theme.css">
+<script src="/ui.js"></script>
 </head>
 <body>
-<main>
-  <h1>pluggy <span>synth</span></h1>
-  <div class="sub">pretraining as a service: configure a synthetic corpus, generate it, then train on the shards.</div>
+<div class="app">
 
-  <div class="grid">
-    <fieldset>
-      <legend>corpus</legend>
-      <label for="domains">seed domains (one per line)</label>
-      <textarea id="domains" rows="8"></textarea>
-      <div class="row">
-        <div>
-          <label for="subtopics">subtopics per domain</label>
-          <input type="number" id="subtopics" min="1" value="25">
-        </div>
-        <div>
-          <label for="docs_per_topic">docs per topic</label>
-          <input type="number" id="docs_per_topic" min="1" value="5">
-        </div>
-      </div>
-      <label>document styles</label>
-      <div id="styles"></div>
-    </fieldset>
+  <aside class="sidebar">
+    <a class="brand" href="/"><span class="mark"></span><b>pluggy</b></a>
+    <nav>
+      <div class="side-group">Runs</div>
+      <a class="side-item" href="/train">
+        <svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>
+        Training
+      </a>
+      <a class="side-item" href="/" aria-current="page">
+        <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="7.5" ry="3"/>
+          <path d="M4.5 5.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6"/>
+          <path d="M4.5 11.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6"/></svg>
+        Data generation
+      </a>
+      <div class="side-group">On this page</div>
+      <div id="sectionnav"></div>
+    </nav>
+    <div class="side-foot">
+      <a class="side-item" href="https://docs.claude.com/en/docs/about-claude/models" target="_blank" rel="noreferrer">
+        <svg viewBox="0 0 24 24"><path d="M4 5.5A1.5 1.5 0 015.5 4H10v16H5.5A1.5 1.5 0 014 18.5z"/>
+          <path d="M20 5.5A1.5 1.5 0 0018.5 4H14v16h4.5a1.5 1.5 0 001.5-1.5z"/></svg>
+        Documentation
+      </a>
+    </div>
+  </aside>
 
-    <fieldset>
-      <legend>model</legend>
-      <div class="row">
-        <div>
-          <label for="provider">provider</label>
-          <select id="provider">
-            <option value="grok" selected>grok (xai)</option>
-            <option value="anthropic">anthropic</option>
-          </select>
-        </div>
-        <div>
-          <label for="model">model</label>
-          <input type="text" id="model" value="grok-4">
-        </div>
+  <div class="content">
+    <div class="topbar">
+      <div class="crumb">
+        <b>pluggy</b>
+        <span class="sep">/</span>
+        <span class="chip">
+          <svg viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 014.5 6h4l2 2.5h9A1.5 1.5 0 0121 10v8a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18z"/></svg>
+          <span id="crumb_cfg">synth_pretrain</span>
+        </span>
+        <span class="mono-id" id="crumb_id">synth</span>
       </div>
-      <div class="row">
-        <div>
-          <label for="max_tokens">max tokens per doc</label>
-          <input type="number" id="max_tokens" min="256" value="4096">
-        </div>
-        <div>
-          <label for="concurrency">concurrency</label>
-          <input type="number" id="concurrency" min="1" value="8">
-        </div>
-        <div>
-          <label for="seed">seed</label>
-          <input type="number" id="seed" value="0">
-        </div>
+      <div class="topbar-right">
+        <button class="icon" id="themetoggle" type="button" aria-label="Toggle theme"></button>
       </div>
-      <div class="row">
-        <div id="grok_opts">
-          <label for="temperature">temperature (grok only, blank = provider default)</label>
-          <input type="number" id="temperature" min="0" max="2" step="0.1" value="1.0">
-        </div>
-      </div>
-      <div class="check" id="anthropic_opts">
-        <input type="checkbox" id="fallbacks" checked>
-        <span>refusal fallbacks <small>(anthropic only: retry safety declines on a fallback model server-side)</small></span>
-      </div>
-    </fieldset>
+    </div>
 
-    <fieldset>
-      <legend>quality</legend>
-      <div class="check" style="margin-top: 2px">
-        <input type="checkbox" id="q_enabled" checked>
-        <span>judge + refine loop</span>
-      </div>
-      <div class="row">
+    <div class="page">
+      <div class="page-head">
         <div>
-          <label for="min_score">min score (keep at or above)</label>
-          <input type="number" id="min_score" min="1" max="10" value="7">
+          <h1><span id="head_name">synth_pretrain</span>
+            <span class="mono-id" id="head_docs">—</span></h1>
+          <div class="meta">
+            <span id="meta_model">claude-opus-5</span>
+            <span class="sep">·</span>
+            <span id="meta_out">data/synth_v0</span>
+          </div>
         </div>
-        <div>
-          <label for="refine_min">refine floor (rewrite at or above)</label>
-          <input type="number" id="refine_min" min="1" max="10" value="5">
-        </div>
-        <div>
-          <label for="refine_rounds">max refine rounds</label>
-          <input type="number" id="refine_rounds" min="0" value="1">
+        <div class="page-actions">
+          <span class="msg" id="msg"></span>
+          <button id="save">Save config</button>
+          <button id="run" class="primary">Generate</button>
         </div>
       </div>
-      <label>dedup</label>
-      <div class="row">
-        <div>
-          <label for="ngram">shingle ngram</label>
-          <input type="number" id="ngram" min="2" value="13">
-        </div>
-        <div>
-          <label for="jaccard">jaccard threshold</label>
-          <input type="number" id="jaccard" min="0.1" max="1" step="0.05" value="0.8">
-        </div>
-      </div>
-    </fieldset>
 
-    <fieldset>
-      <legend>output</legend>
-      <div class="row">
-        <div>
-          <label for="out_dir">output dir</label>
-          <input type="text" id="out_dir" value="data/synth_v0">
+      <div class="cards">
+
+        <div class="card" data-section="Corpus">
+          <div class="card-head"><h2>Corpus</h2>
+            <div class="right"><span class="note" id="corpus_note">—</span></div>
+          </div>
+          <div class="card-body">
+            <label for="domains">Seed domains <span class="hint">— one per line</span></label>
+            <textarea id="domains" rows="8"></textarea>
+            <div class="row">
+              <div class="field">
+                <label for="subtopics">Subtopics per domain</label>
+                <input type="number" id="subtopics" min="1" value="25">
+              </div>
+              <div class="field">
+                <label for="docs_per_topic">Docs per topic</label>
+                <input type="number" id="docs_per_topic" min="1" value="5">
+              </div>
+            </div>
+          </div>
         </div>
-        <div>
-          <label for="shard_docs">docs per shard</label>
-          <input type="number" id="shard_docs" min="1" value="500">
+
+        <div class="card" data-section="Styles">
+          <div class="card-head"><h2>Document styles</h2>
+            <div class="right"><span class="note" id="styles_note">—</span></div>
+          </div>
+          <div class="card-body" id="styles"></div>
         </div>
+
+        <div class="card" data-section="Generation">
+          <div class="card-head"><h2>Generation</h2>
+            <div class="right"><span class="note" id="provider_note">xai api</span></div>
+          </div>
+          <div class="card-body">
+            <div class="row">
+              <div class="field">
+                <label for="provider">Provider</label>
+                <select id="provider">
+                  <option value="grok" selected>grok (xai)</option>
+                  <option value="anthropic">anthropic</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="model">Model</label>
+                <input type="text" id="model" value="grok-4">
+              </div>
+              <div class="field">
+                <label for="seed">Seed</label>
+                <input type="number" id="seed" value="0">
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label for="max_tokens">Max tokens per doc</label>
+                <input type="number" id="max_tokens" min="256" value="4096">
+              </div>
+              <div class="field">
+                <label for="concurrency">Concurrency</label>
+                <input type="number" id="concurrency" min="1" value="8">
+              </div>
+              <div class="field" id="grok_opts">
+                <label for="temperature">Temperature
+                  <small>— grok only, blank = provider default</small></label>
+                <input type="number" id="temperature" min="0" max="2" step="0.1" value="1.0">
+              </div>
+            </div>
+            <div class="check" id="anthropic_opts">
+              <input type="checkbox" id="fallbacks" checked>
+              <label for="fallbacks">Refusal fallbacks
+                <small>— anthropic only: retry safety declines on a fallback model, server-side</small></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" data-section="Quality">
+          <div class="card-head"><h2>Quality</h2>
+            <div class="right">
+              <div class="check" style="margin:0">
+                <input type="checkbox" id="q_enabled" checked>
+                <label for="q_enabled">Judge + refine</label>
+              </div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="row">
+              <div class="field">
+                <label for="min_score">Min score <span class="hint">— keep ≥</span></label>
+                <input type="number" id="min_score" min="1" max="10" value="7">
+              </div>
+              <div class="field">
+                <label for="refine_min">Refine floor <span class="hint">— rewrite ≥</span></label>
+                <input type="number" id="refine_min" min="1" max="10" value="5">
+              </div>
+              <div class="field">
+                <label for="refine_rounds">Max rounds</label>
+                <input type="number" id="refine_rounds" min="0" value="1">
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label for="ngram">Dedup shingle ngram</label>
+                <input type="number" id="ngram" min="2" value="13">
+              </div>
+              <div class="field">
+                <label for="jaccard">Jaccard threshold</label>
+                <input type="number" id="jaccard" min="0.1" max="1" step="0.05" value="0.8">
+              </div>
+            </div>
+          </div>
+          <div class="cmd" id="q_note"></div>
+        </div>
+
+        <div class="card" data-section="Output">
+          <div class="card-head"><h2>Output</h2>
+            <div class="right">
+              <div class="field" style="min-width:190px">
+                <select id="cfg_load"><option value="">Load saved config…</option></select>
+              </div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="row">
+              <div class="field">
+                <label for="out_dir">Output dir</label>
+                <input type="text" id="out_dir" value="data/synth_v0">
+              </div>
+              <div class="field">
+                <label for="shard_docs">Docs per shard</label>
+                <input type="number" id="shard_docs" min="1" value="500">
+              </div>
+            </div>
+            <div class="field">
+              <label for="cfg_name">Config name <span class="hint">— configs/&lt;name&gt;.json</span></label>
+              <input type="text" id="cfg_name" value="synth_pretrain">
+            </div>
+          </div>
+          <div class="cmd" id="shardglob"></div>
+        </div>
+
+        <div class="card" data-section="Estimate">
+          <div class="card-head"><h2>Estimate</h2>
+            <span class="note">worst case, before dedup</span>
+          </div>
+          <div class="card-body flush">
+            <table class="data">
+              <thead><tr><th>Quantity</th><th class="num">Value</th></tr></thead>
+              <tbody id="preview"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card wide" data-section="Monitor">
+          <div class="card-head"><h2>Run</h2>
+            <div class="right">
+              <span class="status"><span class="dot" id="dot"></span><span id="statline">idle</span></span>
+              <button id="stop" disabled>Stop</button>
+            </div>
+          </div>
+          <pre class="log" id="log">No run yet.</pre>
+        </div>
+
       </div>
-      <label for="cfg_name">config name (saved to configs/&lt;name&gt;.json)</label>
-      <div class="row">
-        <div><input type="text" id="cfg_name" value="synth_pretrain"></div>
-        <div>
-          <select id="cfg_load"><option value="">load saved config...</option></select>
-        </div>
-      </div>
-      <div id="preview"></div>
-    </fieldset>
+    </div>
   </div>
-
-  <div class="bar">
-    <button id="save">save config</button>
-    <button id="run" class="primary">save + run</button>
-    <button id="stop" disabled>stop</button>
-    <span id="msg"></span>
-  </div>
-
-  <div id="runstats"><span class="dot" id="dot"></span><span id="statline">idle</span></div>
-  <pre id="log">no run yet. after generating, train with:
-uv run -m pluggy.train.train --config configs/&lt;your_train_config&gt;.json
-(point data.data_files at the shard glob, e.g. "data/synth_v0/shard-*.jsonl")</pre>
-</main>
+</div>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -241,6 +283,8 @@ function syncProvider(resetModel) {
   const provider = $("provider").value;
   $("grok_opts").style.display = provider === "grok" ? "" : "none";
   $("anthropic_opts").style.display = provider === "anthropic" ? "" : "none";
+  // the card's corner note used to be a hard-coded "anthropic api"
+  $("provider_note").textContent = provider === "grok" ? "xai api" : "anthropic api";
   const other = provider === "grok" ? "anthropic" : "grok";
   if (resetModel && (!$("model").value.trim() ||
       $("model").value.trim() === MODEL_DEFAULTS[other]))
@@ -275,21 +319,54 @@ function applyConfig(cfg) {
   preview();
 }
 
+const compact = n =>
+  n >= 1e6 ? (n / 1e6).toFixed(n < 1e7 ? 1 : 0) + "M"
+  : n >= 1e3 ? (n / 1e3).toFixed(n < 1e4 ? 1 : 0) + "k"
+  : String(n);
+
 function preview() {
   const cfg = buildConfig();
   const topics = cfg.seed_domains.length * cfg.taxonomy.subtopics_per_domain;
   const docs = topics * cfg.generation.docs_per_topic;
   const perDoc = 1 + (cfg.quality.enabled ? 1 + cfg.quality.max_refine_rounds : 0);
   const calls = cfg.seed_domains.length + docs * perDoc;
-  const mtok = (docs * cfg.generation.max_tokens / 1e6).toFixed(1);
-  $("preview").innerHTML =
-    `<b>${topics}</b> topics, <b>${docs}</b> docs, up to <b>${mtok}M</b> generated tokens, ` +
-    `roughly <b>${calls}</b> llm calls worst case`;
+  const shards = Math.ceil(docs / Math.max(1, cfg.output.shard_docs));
+
+  const rows = [
+    ["Seed domains", cfg.seed_domains.length, ""],
+    ["Topics", compact(topics), "domains × subtopics"],
+    ["Documents", compact(docs), "topics × docs per topic"],
+    ["Generated tokens", compact(docs * cfg.generation.max_tokens), "at the per-doc cap"],
+    ["LLM calls", compact(calls), perDoc + " per doc + taxonomy"],
+    ["Shards", shards, cfg.output.shard_docs + " docs each"],
+  ];
+  $("preview").innerHTML = rows.map(([k, v, sub]) =>
+    `<tr><td class="key">${k}${sub ? `<small>${sub}</small>` : ""}</td>` +
+    `<td class="num">${v}</td></tr>`).join("");
+
+  const dir = cfg.output.dir || "data/synth_v0";
+  $("shardglob").innerHTML =
+    `train on this corpus by pointing <b>data.data_files</b> at <b>${dir}/shard-*.jsonl</b>`;
+  $("q_note").textContent = cfg.quality.enabled
+    ? `keep ≥ ${cfg.quality.min_score}/10; rewrite ${cfg.quality.refine_min}–`
+      + `${cfg.quality.min_score - 1} up to ${cfg.quality.max_refine_rounds}×; `
+      + `drop below ${cfg.quality.refine_min}. near-duplicates dropped above `
+      + `${cfg.dedup.jaccard_threshold} jaccard.`
+    : "judging off — every generated document is kept as written.";
+
+  $("head_name").textContent = $("cfg_name").value || "untitled";
+  $("head_docs").textContent = compact(docs) + " docs";
+  $("crumb_cfg").textContent = $("cfg_name").value || "untitled";
+  $("meta_model").textContent = cfg.model;
+  $("meta_out").textContent = dir;
+  $("corpus_note").textContent = compact(topics) + " topics";
+  $("styles_note").textContent =
+    STYLE_NAMES.length ? cfg.generation.styles.length + " of " + STYLE_NAMES.length : "—";
 }
 
 function msg(text, ok) {
   $("msg").textContent = text;
-  $("msg").className = ok ? "ok" : "err";
+  $("msg").className = "msg " + (ok ? "ok" : "err");
 }
 
 async function api(path, body) {
@@ -315,15 +392,15 @@ async function poll() {
   $("stop").disabled = !s.running;
   const p = s.progress || {};
   const bits = [];
-  if (s.running) bits.push("running " + (s.config || ""));
+  if (s.running) bits.push("running");
   else if (s.exit_code !== null && s.exit_code !== undefined)
     bits.push("finished (exit " + s.exit_code + ")");
   else bits.push("idle");
   if (p.topics) bits.push(p.topics + " topics");
-  if (p.jobs_done !== undefined) bits.push(p.jobs_done + " jobs done");
+  if (p.jobs_done !== undefined) bits.push(p.jobs_done + " jobs");
   if (p.shards !== undefined) bits.push(p.shards + " shards");
   if (p.manifest) bits.push(`kept ${p.manifest.kept} / dropped ${p.manifest.dropped} / dupes ${p.manifest.dupes}`);
-  $("statline").textContent = bits.join(" | ");
+  $("statline").textContent = bits.join("  ·  ");
   if (s.log_tail) {
     const log = $("log");
     const pinned = log.scrollTop + log.clientHeight >= log.scrollHeight - 8;
@@ -338,12 +415,12 @@ async function loadMeta() {
     STYLE_NAMES = Object.keys(meta.styles);
     $("styles").innerHTML = STYLE_NAMES.map(s =>
       `<div class="check"><input type="checkbox" id="style_${s}" checked>` +
-      `<span>${s} <small>${meta.styles[s]}</small></span></div>`).join("");
+      `<label for="style_${s}">${s} <small>— ${meta.styles[s]}</small></label></div>`).join("");
     document.querySelectorAll("#styles input").forEach(el => el.addEventListener("change", preview));
   }
   const sel = $("cfg_load");
   const current = sel.value;
-  sel.innerHTML = '<option value="">load saved config...</option>' +
+  sel.innerHTML = '<option value="">Load saved config…</option>' +
     meta.configs.map(c => `<option>${c}</option>`).join("");
   sel.value = current;
 }
@@ -353,7 +430,7 @@ $("run").onclick = async () => {
   try {
     await save();
     const data = await api("/api/run", { name: $("cfg_name").value });
-    msg("run started, logging to " + data.log, true);
+    msg("run started → " + data.log, true);
   } catch (e) { msg(e.message, false); }
 };
 $("stop").onclick = () => api("/api/stop", {}).then(() => msg("stop requested", true))

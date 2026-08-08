@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pluggy — training</title>
+<link rel="stylesheet" href="/theme.css">
+<script src="/ui.js"></script>
+</head>
+<body>
+<div class="app">
+
+  <aside class="sidebar">
+    <a class="brand" href="/train"><span class="mark"></span><b>pluggy</b></a>
+    <nav>
+      <div class="side-group">Runs</div>
+      <a class="side-item" href="/train" aria-current="page">
+        <svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>
+        Training
+      </a>
+      <a class="side-item" href="/">
+        <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="7.5" ry="3"/>
+          <path d="M4.5 5.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6"/>
+          <path d="M4.5 11.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6"/></svg>
+        Data generation
+      </a>
+      <div class="side-group">On this page</div>
+      <div id="sectionnav"></div>
+    </nav>
+    <div class="side-foot">
+      <a class="side-item" href="https://pytorch.org/docs/stable/distributed.html" target="_blank" rel="noreferrer">
+        <svg viewBox="0 0 24 24"><path d="M4 5.5A1.5 1.5 0 015.5 4H10v16H5.5A1.5 1.5 0 014 18.5z"/>
+          <path d="M20 5.5A1.5 1.5 0 0018.5 4H14v16h4.5a1.5 1.5 0 001.5-1.5z"/></svg>
+        Documentation
+      </a>
+    </div>
+  </aside>
+
+  <div class="content">
+    <div class="topbar">
+      <div class="crumb">
+        <b>pluggy</b>
+        <span class="sep">/</span>
+        <span class="chip">
+          <svg viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 014.5 6h4l2 2.5h9A1.5 1.5 0 0121 10v8a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18z"/></svg>
+          <span id="crumb_cfg">qwen3_dense_run</span>
+        </span>
+        <span class="mono-id" id="crumb_id">cfg_qwen3_dense</span>
+      </div>
+      <div class="topbar-right">
+        <button class="icon" id="themetoggle" type="button" aria-label="Toggle theme"></button>
+      </div>
+    </div>
+
+    <div class="page">
+      <div class="page-head">
+        <div>
+          <h1><span id="head_name">qwen3_dense_run</span>
+            <span class="mono-id" id="head_params">—</span></h1>
+          <div class="meta">
+            <span id="meta_arch">qwen3_dense</span>
+            <span class="sep">·</span>
+            <span id="meta_par">ddp × 4</span>
+            <span class="sep">·</span>
+            <span id="meta_data">OptimalScale/ClimbMix</span>
+          </div>
+        </div>
+        <div class="page-actions">
+          <span class="msg" id="msg"></span>
+          <button id="bench">Benchmark</button>
+          <button id="save">Save config</button>
+          <button id="launch" class="primary">Launch run</button>
+        </div>
+      </div>
+
+      <div class="cards">
+
+        <div class="card" data-section="Architecture">
+          <div class="card-head"><h2>Architecture</h2>
+            <div class="right"><span class="note" id="arch_note">—</span></div>
+          </div>
+          <div class="card-body">
+            <div class="row">
+              <div class="field">
+                <label for="m_name">Model</label>
+                <select id="m_name">
+                  <option value="qwen3_dense">qwen3_dense</option>
+                  <option value="llama3_2" disabled>llama3_2 — stub, unregistered</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="m_vocab">Vocab size</label>
+                <input type="number" id="m_vocab" min="1" value="151936">
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label for="m_layers">Layers</label>
+                <input type="number" id="m_layers" min="1" value="28">
+              </div>
+              <div class="field">
+                <label for="m_emb">Emb dim</label>
+                <input type="number" id="m_emb" min="1" value="1024">
+              </div>
+              <div class="field">
+                <label for="m_ffn">FFN dim <span class="hint">— auto</span></label>
+                <input type="text" id="m_ffn" placeholder="derived">
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label for="m_heads">Q heads</label>
+                <input type="number" id="m_heads" min="1" value="16">
+              </div>
+              <div class="field">
+                <label for="m_kv_heads">KV heads</label>
+                <input type="number" id="m_kv_heads" min="1" value="8">
+              </div>
+              <div class="field">
+                <label for="m_head_dim">Head dim</label>
+                <input type="number" id="m_head_dim" min="1" value="128">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" data-section="Parallelism">
+          <div class="card-head"><h2>Parallelism</h2>
+            <div class="right">
+              <div class="seg" id="par_seg">
+                <button type="button" data-val="ddp" aria-pressed="true">ddp</button>
+                <button type="button" data-val="fsdp2" aria-pressed="false">fsdp2</button>
+              </div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="row">
+              <div class="field">
+                <label for="p_dp">Mesh dp <span class="hint">— ranks</span></label>
+                <input type="number" id="p_dp" min="1" value="4">
+              </div>
+              <div class="field">
+                <label for="p_bucket">DDP bucket <span class="hint">— MB</span></label>
+                <input type="number" id="p_bucket" min="1" value="25">
+              </div>
+            </div>
+            <div class="check">
+              <input type="checkbox" id="p_compile" checked>
+              <label for="p_compile">torch.compile per block
+                <small>— wraps each entry in model.blocks</small></label>
+            </div>
+          </div>
+          <div class="cmd" id="p_note"></div>
+        </div>
+
+        <div class="card" data-section="Optimizer">
+          <div class="card-head"><h2>Optimizer</h2>
+            <div class="right"><span class="note">adamw</span></div>
+          </div>
+          <div class="card-body">
+            <div class="row">
+              <div class="field">
+                <label for="o_lr">Peak LR</label>
+                <input type="text" id="o_lr" value="3e-4">
+              </div>
+              <div class="field">
+                <label for="o_wd">Weight decay</label>
+                <input type="text" id="o_wd" value="0.1">
+              </div>
+              <div class="field">
+                <label for="o_clip">Grad clip</label>
+                <input type="text" id="o_clip" value="1.0">
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label for="o_b1">Beta 1</label>
+                <input type="text" id="o_b1" value="0.9">
+              </div>
+              <div class="field">
+                <label for="o_b2">Beta 2</label>
+                <input type="text" id="o_b2" value="0.95">
+              </div>
+            </div>
+            <div class="check">
+              <input type="checkbox" id="o_fused" checked>
+              <label for="o_fused">Fused optimizer step</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" data-section="Schedule">
+          <div class="card-head"><h2>Schedule</h2>
+            <div class="right">
+              <div class="seg" id="sched_seg">
+                <button type="button" data-val="wsd" aria-pressed="true">wsd</button>
+                <button type="button" data-val="cosine" aria-pressed="false">cosine</button>
+              </div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="row">
+              <div class="field">
+                <label for="s_steps">Total steps</label>
+                <input type="number" id="s_steps" min="1" value="42000">
+              </div>
+              <div class="field">
+                <label for="s_warmup">Warmup ratio</label>
+                <input type="text" id="s_warmup" value="0.01">
+              </div>
+              <div class="field">
+                <label for="s_decay">Decay ratio</label>
+                <input type="text" id="s_decay" value="0.1">
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label for="r_save">Checkpoint every <span class="hint">— steps</span></label>
+                <input type="number" id="r_save" min="1" value="6000">
+              </div>
+              <div class="field">
+                <label for="r_resume">Resume from <span class="hint">— blank for fresh</span></label>
+                <input type="text" id="r_resume" placeholder="none">
+              </div>
+            </div>
+          </div>
+          <div class="cmd" id="s_note"></div>
+        </div>
+
+        <div class="card" data-section="Data">
+          <div class="card-head"><h2>Data</h2>
+            <div class="right"><span class="note" id="data_note">—</span></div>
+          </div>
+          <div class="card-body">
+            <div class="field">
+              <label for="d_name">Dataset <span class="hint">— hf name or shard glob</span></label>
+              <input type="text" id="d_name" value="OptimalScale/ClimbMix">
+            </div>
+            <div class="row">
+              <div class="field">
+                <label for="d_split">Split</label>
+                <input type="text" id="d_split" value="train">
+              </div>
+              <div class="field">
+                <label for="d_text">Text field</label>
+                <input type="text" id="d_text" value="text">
+              </div>
+            </div>
+            <div class="field">
+              <label for="d_tok">Tokenizer</label>
+              <input type="text" id="d_tok" value="Qwen/Qwen3-0.6B">
+            </div>
+            <div class="row">
+              <div class="field">
+                <label for="d_seq">Seq len</label>
+                <input type="number" id="d_seq" min="1" value="4096">
+              </div>
+              <div class="field">
+                <label for="d_gbs">Global batch</label>
+                <input type="number" id="d_gbs" min="1" value="32">
+              </div>
+              <div class="field">
+                <label for="d_mbs">Micro batch</label>
+                <input type="number" id="d_mbs" min="1" value="4">
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label for="d_workers">Workers</label>
+                <input type="number" id="d_workers" min="0" value="4">
+              </div>
+              <div class="field">
+                <label for="d_shuffle">Shuffle buffer</label>
+                <input type="number" id="d_shuffle" min="0" value="1000">
+              </div>
+              <div class="field">
+                <label for="d_pack">Pack batch</label>
+                <input type="number" id="d_pack" min="1" value="1000">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" data-section="Objective">
+          <div class="card-head"><h2>Objective</h2>
+            <div class="right"><span class="note">AR — next-token CE</span></div>
+          </div>
+          <div class="card-body">
+            <div class="row">
+              <div class="field">
+                <label for="j_ignore">Ignore index</label>
+                <input type="number" id="j_ignore" value="-100">
+              </div>
+              <div class="field">
+                <label for="j_chunk">CE chunk size</label>
+                <input type="number" id="j_chunk" min="1" value="4096">
+              </div>
+            </div>
+            <div class="check">
+              <input type="checkbox" id="j_fused" checked>
+              <label for="j_fused">Fused linear + CE
+                <small>— skips the (batch, seq, vocab) logit tensor</small></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" data-section="Run">
+          <div class="card-head"><h2>Run</h2>
+            <div class="right">
+              <div class="field" style="min-width:190px">
+                <select id="cfg_load"><option value="">Load saved config…</option></select>
+              </div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="row">
+              <div class="field">
+                <label for="r_name">Run name <span class="hint">— wandb + checkpoint dir</span></label>
+                <input type="text" id="r_name" value="qwen3_dense_run">
+              </div>
+              <div class="field">
+                <label for="r_seed">Seed</label>
+                <input type="number" id="r_seed" value="0">
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label for="cfg_name">Config name <span class="hint">— configs/&lt;name&gt;.json</span></label>
+                <input type="text" id="cfg_name" value="qwen3_dense_run">
+              </div>
+              <div class="field">
+                <label for="r_project">wandb project</label>
+                <input type="text" id="r_project" value="pluggy">
+              </div>
+            </div>
+            <div class="check">
+              <input type="checkbox" id="r_wandb" checked>
+              <label for="r_wandb">Log to wandb <small>— rank 0 only</small></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card wide" data-section="Derived">
+          <div class="card-head"><h2>Derived</h2>
+            <span class="note">computed from the fields above, not from a live run</span>
+          </div>
+          <div class="card-body flush">
+            <table class="data">
+              <thead>
+                <tr><th>Quantity</th><th class="num">Value</th><th>Quantity</th><th class="num">Value</th></tr>
+              </thead>
+              <tbody id="derived"></tbody>
+            </table>
+          </div>
+          <div class="cmd" id="launchcmd"></div>
+        </div>
+
+        <div class="card wide" data-section="Monitor">
+          <div class="card-head"><h2>Loss by step</h2>
+            <div class="right">
+              <span class="status"><span class="dot" id="dot"></span><span id="statline">idle</span></span>
+              <button id="stop" disabled>Stop</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="plot">No metrics yet — launch a run to stream loss, lr and tps here.</div>
+          </div>
+          <pre class="log" id="log">No run yet.</pre>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const num = id => +$(id).value;
+
+const compact = n =>
+  !isFinite(n) ? "—"
+  : n >= 1e9 ? (n / 1e9).toFixed(n < 1e10 ? 2 : 1) + "B"
+  : n >= 1e6 ? (n / 1e6).toFixed(n < 1e7 ? 1 : 0) + "M"
+  : n >= 1e3 ? (n / 1e3).toFixed(n < 1e4 ? 1 : 0) + "k"
+  : String(Math.round(n));
+
+// segmented controls behave like radio groups; value read back off the DOM
+function segValue(id) {
+  const on = $(id).querySelector('[aria-pressed="true"]');
+  return on ? on.dataset.val : null;
+}
+document.querySelectorAll(".seg").forEach(seg => {
+  seg.querySelectorAll("button").forEach(btn => {
+    btn.onclick = () => {
+      seg.querySelectorAll("button").forEach(b =>
+        b.setAttribute("aria-pressed", String(b === btn)));
+      derive();
+    };
+  });
+});
+
+// mirrors Qwen3TransformerBlock's default: 256 * ceil(8d/3 / 256)
+function ffnDim() {
+  const raw = $("m_ffn").value.trim();
+  if (raw) return +raw;
+  return 256 * Math.ceil(Math.floor(8 * num("m_emb") / 3) / 256);
+}
+
+function paramCount() {
+  const [L, H, KV, hd, emb, vocab] =
+    ["m_layers", "m_heads", "m_kv_heads", "m_head_dim", "m_emb", "m_vocab"].map(num);
+  const ffn = ffnDim();
+  const attn = emb * H * hd + 2 * emb * KV * hd + H * hd * emb;
+  const mlp = 3 * emb * ffn;
+  const norms = 2 * emb + 2 * hd;   // pre-attn/pre-mlp rmsnorm + q/k norm
+  return { nonEmbed: L * (attn + mlp + norms) + emb, embed: vocab * emb };  // lm_head tied
+}
+
+function derive() {
+  const { nonEmbed, embed } = paramCount();
+  const total = nonEmbed + embed;
+  const dp = Math.max(1, num("p_dp"));
+  const gbs = num("d_gbs"), mbs = num("d_mbs"), seq = num("d_seq");
+  const accum = gbs / (mbs * dp);
+  const badAccum = !Number.isInteger(accum) || accum < 1;
+  const tokensPerStep = gbs * seq;
+  const totalTokens = tokensPerStep * num("s_steps");
+  const par = segValue("par_seg"), sched = segValue("sched_seg");
+  const fsdp2 = par === "fsdp2";
+  // adamw carries 2 fp32 moments per param; under fsdp2 both shard along dp
+  const optBytes = total * 8 / (fsdp2 ? dp : 1);
+
+  const rows = [
+    ["Parameters", compact(total), "Tokens / step", compact(tokensPerStep)],
+    ["Non-embedding", compact(nonEmbed), "Total tokens", compact(totalTokens)],
+    ["Embedding <small>tied lm_head</small>", compact(embed), "FFN dim", compact(ffnDim())],
+    ["Optimizer state <small>adamw moments, fp32</small>", compact(optBytes) + "B",
+     "Grad accum", badAccum ? "INVALID" : String(accum)],
+  ];
+  $("derived").innerHTML = rows.map(([k1, v1, k2, v2]) =>
+    `<tr><td class="key">${k1}</td><td class="num">${v1}</td>` +
+    `<td class="key">${k2}</td><td class="num${v2 === "INVALID" ? " flag" : ""}">` +
+    `${v2 === "INVALID" ? "<span>invalid</span>" : v2}</td></tr>`).join("");
+
+  const name = $("cfg_name").value;
+  $("launchcmd").innerHTML =
+    `<b>torchrun --nproc_per_node=${dp} -m pluggy.train.train \\\n` +
+    `  --config configs/${name || "&lt;name&gt;"}.json</b>` +
+    (badAccum
+      ? `\n\ngrad accum must be a positive integer: global_batch_size (${gbs}) ` +
+        `/ (micro_batch_size (${mbs}) × dp (${dp})) = ${accum.toFixed(2)}`
+      : "");
+
+  $("p_note").textContent = fsdp2
+    ? "fsdp2 shards params, grads and optimizer state along dp. checkpointing is "
+      + "guarded off under fsdp2 — benchmark runs only."
+    : "ddp replicates params and all-reduces grads in " + num("p_bucket") + " MB buckets.";
+  $("p_bucket").disabled = fsdp2;
+  $("r_save").disabled = fsdp2;
+
+  const steps = num("s_steps");
+  $("s_note").textContent = sched === "wsd"
+    ? `warmup ${Math.round(steps * parseFloat($("s_warmup").value || 0))} steps · `
+      + `stable · decay ${Math.round(steps * parseFloat($("s_decay").value || 0))} steps`
+    : `warmup ${Math.round(steps * parseFloat($("s_warmup").value || 0))} steps, `
+      + `then cosine to zero over the remainder`;
+
+  $("head_name").textContent = $("r_name").value || "untitled";
+  $("head_params").textContent = compact(total) + " params";
+  $("crumb_cfg").textContent = $("r_name").value || "untitled";
+  $("meta_arch").textContent = $("m_name").value;
+  $("meta_par").textContent = par + " × " + dp;
+  $("meta_data").textContent = $("d_name").value;
+  $("data_note").textContent = compact(tokensPerStep) + " tok/step";
+  $("arch_note").textContent = num("m_layers") + "L · " + num("m_emb") + "d";
+}
+
+function msg(text, ok) {
+  $("msg").textContent = text;
+  $("msg").className = "msg " + (ok ? "ok" : "err");
+}
+
+const notWired = () => msg("not wired up yet — ui only", false);
+["launch", "save", "bench", "stop"].forEach(id => $(id).onclick = notWired);
+
+document.querySelectorAll("input, select").forEach(el => {
+  el.addEventListener("input", derive);
+  el.addEventListener("change", derive);
+});
+derive();
+</script>
+</body>
+</html>

@@ -280,3 +280,63 @@ accounted for.
    same duration under the same box load before attributing the gap to
    all-reduce.
 
+
+---
+
+# Round 3 (2026-08-08)
+
+FSDP2 + `torch.compile`. Setup differs from rounds 1–2: **4x H100 NVL**,
+qwen3 0.6B, seq_len=4096, `configs/qwen3_dense_mix_fsdp2_h100.json`
+(`parallelism: fsdp2`, dp=4, global_batch=16 = micro 2 x dp 4 x 2 accum),
+8-step benchmark runs via `uv run torchrun --nproc-per-node 4 -m
+pluggy.train.train --config <cfg> --steps 8`. Per the round-2 discipline note,
+these are H100 numbers and do NOT belong on the same scale as the A40/A6000
+tables above.
+
+## Results
+
+| config | steady TPS | peak mem | loss @ step 7 |
+|--------|-----------|----------|---------------|
+| fsdp2, compile **on** (before this round) | — | — | **crashed at step 0** |
+| fsdp2, compile off (eager) | ~101200 | 27.23 GiB | 9.3349 |
+| **fsdp2, compile on (adopted)** | **~137500** | **20.23 GiB** | **9.3333** |
+
+**+36% TPS and −26% peak memory**, at a loss trajectory that matches eager to
+fp noise (step 0: 12.1406 vs 12.1405, gnorm 25.428 vs 25.427; the ~0.002
+spread at step 7 is the usual inductor reduction-order drift, same magnitude as
+round 1's compile numbers).
+
+## Changes
+
+### 8. `torch._dynamo.disable` on the FSDP2 hooks (unbreaks compile: +36% TPS, −26% mem)
+Every fsdp2 run with compile enabled (the default) died in the first
+microbatch:
+
+```
+AssertionError: Encountered a set_ on a graph input, but the input has other
+mutations that we cannot keep in the graph.  mutates_metadata=True, requires_grad=True
+```
+
+Cause: `nn.Module.compile()` compiles `_call_impl`, which *runs the forward
+hooks*, so dynamo traced the unshard hook — and `p.data = self.full` lowers to
+a `set_` on a graph input that also has its metadata mutated, which
+AOTAutograd rejects outright. Nothing to do with the sharding math; it is
+purely where the storage juggling sat relative to the traced region.
+
+Fix: `@torch._dynamo.disable` on `_unshard`, `_reshard_after_forward` and
+`_on_grad_ready` in `pluggy/parallelism/fsdp2.py`. Dynamo graph-breaks at each
+hook and runs it eagerly, leaving the block body as one compiled region; the
+param is the gathered full tensor for every compiled forward, so shapes and
+guards stay stable across the `resize_(0)` / re-gather cycle. This is the same
+policy upstream applies to its own FSDP2 (`torch._dynamo.config.skip_fsdp_hooks`,
+default true — which only covers `torch.distributed`'s hooks, not ours).
+
+Guarded by `test_compile_parity` in `tests/fsdp2.py` (gloo/cpu, in ci): FSDP2
+then `block.compile()`, in the trainer's order, checked against the
+single-process reference. Verified to have teeth — with the decorators removed
+it reproduces the `BackendCompilerFailed` above on cpu, so this class of break
+gets caught in ci instead of on a GPU.
+
+Note this is a *correctness-of-launch* fix, not a tuning knob: before it, the
+only way to run fsdp2 at all was `"compile": false`, which is what the ~101k
+eager row above measures.
