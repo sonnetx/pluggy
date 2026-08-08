@@ -37,17 +37,22 @@ code does that fsdp will break on.
       single biggest source of nondeterministic corruption in the whole phase —
       treat "which stream does this tensor's storage belong to" as a thing you
       assert, not assume.
-- [ ] **the objective reaches into `model.lm_head.weight` from outside the
-      model.** `ARObjective.compute_loss` calls `model(..., return_final_hidden=True)`
+- [x] **the objective reaches into `model.lm_head.weight` from outside the
+      model.** resolved 8/8, first option: the ROOT unit (everything outside
+      model.blocks, i.e. token_emb + lm_head + norm) has
+      `reshard_after_forward=False` -- it stays gathered through the loss and
+      backward and reshards after its grads reduce, which is free since its
+      params are needed first in backward anyway. exercised directly by
+      `test_fused_ce_objective` in tests/fsdp2.py. original analysis kept:
+      `ARObjective.compute_loss` calls `model(..., return_final_hidden=True)`
       and then hands `model.lm_head.weight` to the fused linear+ce, so the head
-      weight is consumed *after* the model's forward has returned. any design
-      that unshards on a module forward-pre-hook and reshards on the
-      forward-post-hook will hand the objective a resharded (or freed) weight.
-      decide the fix now: keep the head's unit unsharded until loss is
-      computed, or move the fused-ce call inside the model's forward, or have
-      the objective ask the wrapper for the unsharded weight. this is the first
-      thing that will break and the least obvious.
-- [ ] **`clip_grad_norm` needs sharded grads.** it already takes `shard_dims`,
+      weight is consumed *after* the model's forward has returned.
+- [x] **`clip_grad_norm` needs sharded grads.** resolved 8/8: after
+      `FSDP2.sync()`, `p.grad` IS the sharded fp32 grad (plain tensor), and
+      `shard_dims=(dim,)` reproduces the single-process norm + post-clip
+      grads (`test_clip_grad_norm`, live against the real wrapper). the
+      TRAINER call site still hardcodes `shard_dims=()` -- flip it when the
+      trainer grows the fsdp path. it already takes `shard_dims`,
       so the math is there — but it reads `p.grad` off the param list. settle
       what `p.grad` *is* after fsdp (sharded fp32? a dtensor?) and make the
       call site pass `shard_dims=("dp_shard",)`. an unsharded-shaped grad
@@ -102,6 +107,21 @@ on gloo, both directions where they exist. ✅ met 8/8 (`tests/dtensor.py`).
 ## stage 2 — sharding + the parameter lifecycle
 
 roadmap 2.2. the core of the phase.
+
+**status 8/8: the v0 CORRECTNESS half of this stage is landed and green**
+(`pluggy/parallelism/fsdp2.py`, `tests/fsdp2.py` at 2 and 4 ranks, in ci):
+unit definition (blocks + root), broadcast-then-slice init, the full
+unshard/reshard/re-unshard/post-backward lifecycle over a preallocated
+full tensor whose storage resizes 0 <-> full (stable tensor identity for
+backward's saved refs and, later, compile guards), reduce-scatter-every-
+microbatch grad accumulation, and the optimizer allocating state at shard
+shapes. both stage-2 exit criteria met on gloo. the PERF half is still
+open and unchanged below: per-param gathers (one collective per param, not
+one flat gather per unit -- v0 chose correctness-first, the flat backing
+is the recorded next perf move), no comm stream, no prefetch, no bf16
+cast on gather, no mixed-precision policy beyond "autocast as under ddp".
+one decision diverged from the lean below: v0 shards per-param WITHOUT
+the flat per-unit backing; revisit when the gpu numbers exist.
 
 - [ ] **unit definition.** a unit = one transformer block, plus one unit for
       `(token_emb + lm_head + norm)`. the tied weight (`lm_head.weight is

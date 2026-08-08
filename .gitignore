@@ -223,3 +223,4 @@ __marimo__/
 # profiler chrome traces -- ~11MB each, regenerate with
 # pluggy/train/profile_overlap.py rather than committing them
 traces/
+.claude/

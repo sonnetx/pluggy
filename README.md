@@ -72,6 +72,7 @@ uv run tests/dataloader_packing.py --check    # packer equality + invariants
 uv run tests/checkpointer.py                  # save/load roundtrip + prefetcher exact resume
 uv run tests/scheduler.py                     # wsd + cosine shapes, resume parity
 uv run tests/data_parallel.py --world-size 4  # ddp grad parity vs single process
+uv run tests/fsdp2.py --world-size 4          # fsdp2 parity + memory invariants
 uv run tests/grad_helper.py --world-size 2    # grad clipping vs torch reference
 uv run tests/fused_linear_ce.py               # needs cuda
 ```
