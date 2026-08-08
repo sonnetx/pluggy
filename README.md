@@ -63,6 +63,12 @@ uv run -m pluggy.train.train --config configs/qwen3_dense_climbmix.json --steps 
 
 uv run torchrun --nproc-per-node 8 -m pluggy.train.train \
     --config configs/qwen3_dense_climbmix_ddp.json --steps 20
+
+# fsdp2 (per-param sharding: sharded grads + adam state). benchmark-only
+# until sharded checkpointing lands -- the trainer refuses a checkpointing
+# fsdp2 run rather than writing one rank's shard as if it were the model
+uv run torchrun --nproc-per-node 8 -m pluggy.train.train \
+    --config configs/qwen3_dense_climbmix_fsdp2.json --steps 20
 ```
 
 ## synthetic data (pretraining as a service)

@@ -33,6 +33,7 @@ from pluggy.models.builder import build_model
 from pluggy.objectives.builder import build_objective
 from pluggy.optimizer.builder import build_optimizer, build_scheduler
 from pluggy.parallelism.data_parallel import DDP
+from pluggy.parallelism.fsdp2 import FSDP2
 from pluggy.utils import record_time, debug_time, get_project_dir
 
 
@@ -218,21 +219,47 @@ class Trainer:
 
     def _parallelize(self, model: nn.Module) -> nn.Module:
         """
-        ddp for now: replicate along the dp axis, bucketed grad sync
-        overlapped with backward. tensor/expert/context parallel + fsdp2
-        slot in here later, driven by the same mesh.
+        config-selected data parallelism over the same mesh: "ddp"
+        (replicate + bucketed overlapped grad all-reduce, the default) or
+        "fsdp2" (per-param sharding, sharded grads and optimizer state).
+        both expose the same surface the loop drives (requires_sync, sync),
+        so train_step doesn't branch. tensor/expert/context parallel slot
+        in here later.
 
         runs before _compile on purpose: the grad hooks sit on params at the
-        AccumulateGrad boundary, outside the compiled regions. at dp=1 the
-        DDP ctor is a complete no-op (no hooks, no groups touched).
+        AccumulateGrad boundary (ddp) or module boundaries (fsdp2), outside
+        the compiled regions. at dp=1 both ctors are complete no-ops.
         """
-        ddp_cfg = self.config.get("ddp", {})
-        self.ddp = DDP(
-            model,
-            self.mesh,
-            dim="dp",
-            bucket_mb=ddp_cfg.get("bucket_mb", 25),
-        )
+        self.parallelism = self.config.get("parallelism", "ddp")
+        if self.parallelism == "ddp":
+            ddp_cfg = self.config.get("ddp", {})
+            self.dp = DDP(
+                model,
+                self.mesh,
+                dim="dp",
+                bucket_mb=ddp_cfg.get("bucket_mb", 25),
+            )
+        elif self.parallelism == "fsdp2":
+            # LOUD GUARD (FSDP2_SCOPE stage 0): the checkpointer writes rank
+            # 0's replica, which under fsdp2 is one rank's SHARD dressed as
+            # the model -- a silently corrupt checkpoint. until sharded
+            # checkpointing (phase 3) lands, fsdp2 runs are benchmark-only
+            # (train.py --steps), which never checkpoints.
+            assert self.benchmark, (
+                "fsdp2 + checkpointing would write one rank's shard as if it "
+                "were the model; run with --steps (benchmark mode) until "
+                "sharded checkpointing (roadmap phase 3) lands"
+            )
+            self.dp = FSDP2(model, self.mesh, dim="dp")
+        else:
+            raise ValueError(
+                f"unknown parallelism {self.parallelism!r}: expected 'ddp' or 'fsdp2'"
+            )
+        # grads are sharded along dp under fsdp2, replicated under ddp; the
+        # grad-norm clip has to know which (a replicated norm reduced over dp
+        # would come back sqrt(dp) too large, a sharded one left unreduced
+        # would be too small)
+        self.grad_shard_dims = ("dp",) if self.parallelism == "fsdp2" else ()
         return model
 
     def _compile(self, model: nn.Module) -> None:
@@ -408,17 +435,19 @@ class Trainer:
     @record_time
     def train_step(self) -> dict[str, torch.Tensor]:
         loss = torch.zeros((), device=self.device)
-        self.ddp.requires_sync = False
+        self.dp.requires_sync = False
         for _ in range(self.microbatches_per_step - 1):
             loss += self.micro_train_step()
 
-        # the last microbatch is the one whose hooks launch the bucket
-        # all-reduces, over the fully accumulated grads
-        self.ddp.requires_sync = True
+        # under ddp the last microbatch is the one whose hooks launch the
+        # bucket all-reduces, over the fully accumulated grads; fsdp2
+        # ignores the flag (it reduce-scatters every microbatch by design)
+        self.dp.requires_sync = True
         loss += self.micro_train_step()
-        self.ddp.sync()
+        self.dp.sync()
         grad_norm = clip_grad_norm(
-            self.model.parameters(), self.mesh, self.max_norm, shard_dims=()
+            self.model.parameters(), self.mesh, self.max_norm,
+            shard_dims=self.grad_shard_dims,
         )
         self.optimizer.step()
         self.optimizer.zero_grad()

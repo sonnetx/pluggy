@@ -57,9 +57,10 @@ code does that fsdp will break on.
       what `p.grad` *is* after fsdp (sharded fp32? a dtensor?) and make the
       call site pass `shard_dims=("dp_shard",)`. an unsharded-shaped grad
       sneaking in gives a silently wrong (too large) norm, not a crash.
-- [ ] **checkpointing will silently save one rank's shard as if it were the
-      model.** phase 3 fixes it properly; for this phase add a loud guard so an
-      fsdp run can't write a corrupt checkpoint in the meantime.
+- [x] **checkpointing will silently save one rank's shard as if it were the
+      model.** phase 3 fixes it properly; guarded 8/8: the trainer only
+      accepts `parallelism: "fsdp2"` in benchmark mode (`--steps`), which
+      never checkpoints, and asserts with the reason otherwise.
 - [ ] **mesh axes.** `dp` becomes `dp_replicate` × `dp_shard`, with
       `mesh.flatten(("dp_replicate", "dp_shard"), "dp")` for the dataloader
       (that's what `flatten` was built for). config validation: reject a spec
