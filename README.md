@@ -67,6 +67,7 @@ no gpus needed for any of these except the last (gloo/cpu, `mp.spawn`):
 
 ```bash
 uv run tests/collective.py --world-size 4     # 12 collective op tests
+uv run tests/dtensor.py --world-size 4        # placement/redistribute table
 uv run tests/dataloader_packing.py --check    # packer equality + invariants
 uv run tests/checkpointer.py                  # save/load roundtrip + prefetcher exact resume
 uv run tests/scheduler.py                     # wsd + cosine shapes, resume parity

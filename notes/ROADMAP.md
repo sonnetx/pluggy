@@ -50,7 +50,7 @@ is the direct fix — phase 2 is a throughput lever here, not only a memory one.
 | area | state |
 |------|-------|
 | `core/collective.py` | **done.** all 7 ops implemented against the documented contracts; 12 tests green on gloo (`tests/collective.py --world-size 4`, in ci). nccl sweep still owed |
-| `core/mesh.py` | **done.** named axes over the flat rank space: per-axis groups, strides, coordinates, `flatten()` for virtual axes (dataloader's dp coord). `dtensor.py` / `placement.py` not started — fsdp2 decides their shape |
+| `core/mesh.py` | **done.** named axes over the flat rank space: per-axis groups, strides, coordinates, `flatten()` for virtual axes (dataloader's dp coord). `dtensor.py` / `placement.py` done (8/8): bookkeeping wrapper with explicit redistribute, all five table cells tested vs full_tensor() ground truth on gloo (`tests/dtensor.py`, in ci) |
 | `parallelism/data_parallel.py` | **done (phase 1).** bucketed grad all-reduce launched from `register_post_accumulate_grad_hook`, overlapped with backward; flat-buffer buckets with `.grad` repointed at views, oversized params (the tied embedding) reduced in place; dp=1 is a total no-op. `requires_sync` gives no_sync semantics for grad accumulation (1.3). grad parity + accumulation parity tested on gloo (`tests/data_parallel.py`) |
 | `core/grad_helper.py` | **done (phase 1.3).** `clip_grad_norm(params, mesh, max_norm, shard_dims=())` — placement-aware global grad-norm clip, returns the pre-clip norm for logging. local path matches `torch.nn.utils.clip_grad_norm_` and runs at memory-bandwidth limit (~10 ms / 2.1 GiB of grads, ~1.8% of a step); sharded path implemented and tested but unused until fsdp2. tests in `tests/grad_helper.py` |
 | `parallelism/{fsdp2,context_parallel,expert_parallel}.py` | empty stubs — next up |
@@ -240,6 +240,16 @@ implement and test:
 test each against `full_tensor()` ground truth on gloo; uneven-shard padding
 is out of scope for v0 (assert divisibility loudly, same policy as the
 collectives).
+
+✅ done 8/8: `core/placement.py` (frozen-dataclass value types) +
+`core/dtensor.py` (placements keyed by mesh axis name, absent = Replicate;
+per-axis redistribute; from_full slices locally for the init-full-then-slice
+path). all five cells tested at 2 and 4 ranks in `tests/dtensor.py` (in ci),
+including the fsdp identity (partial→shard→replicate == partial→replicate),
+a multi-axis shard×partial layout, and the loud-failure paths. decisions
+recorded in the dtensor docstring: no `__torch_dispatch__`, divisibility
+asserted (no padding), and the optimizer never sees a DTensor (params stay
+plain tensors at runtime, placements are bookkeeping).
 
 **2.2 `parallelism/fsdp2.py`.** per-unit sharding where a unit = one
 transformer block, plus one unit for (token_emb + lm_head + final norm) —

@@ -14,7 +14,7 @@ done until its test passes on gloo/cpu (`mp.spawn`, no gpus), then nccl.
 these are prerequisites, not fsdp itself. all of them are things the current
 code does that fsdp will break on.
 
-- [ ] **`all_gather` can't gather into a caller-owned buffer.** it allocates a
+- [x] **`all_gather` can't gather into a caller-owned buffer.** it allocates a
       fresh output every call. fsdp wants one preallocated per-unit buffer that
       it reuses across steps (and frees between them), otherwise the allocator
       churns a full unsharded copy per unit per forward. add an `out=` path (or
@@ -66,20 +66,30 @@ code does that fsdp will break on.
 roadmap 2.1. bookkeeping wrapper with explicit `redistribute`, **not** a
 `__torch_dispatch__` subclass — nothing downstream needs op propagation.
 
-- [ ] `Shard(dim)`, `Replicate()`, `Partial(op)` as value types (hashable,
+- [x] `Shard(dim)`, `Replicate()`, `Partial(op)` as value types (hashable,
       comparable, printable — they end up in checkpoint metadata).
-- [ ] a wrapper holding `(local_tensor, mesh, placements)` with
+      done 8/8: frozen dataclasses in `core/placement.py`.
+- [x] a wrapper holding `(local_tensor, mesh, placements)` with
       `from_local / to_local / full_tensor / redistribute`.
-- [ ] the redistribute table: `Shard(d)→Replicate` (all_gather),
+      done 8/8: `core/dtensor.py`, placements keyed by mesh axis name
+      (absent = Replicate), plus `from_full` for the init-full-then-slice
+      path in stage 2.
+- [x] the redistribute table: `Shard(d)→Replicate` (all_gather),
       `Replicate→Shard(d)` (local slice, no comm), `Partial→Replicate`
       (all_reduce), `Partial→Shard(d)` (reduce_scatter),
       `Shard(i)→Shard(j)` (all_to_all).
-- [ ] **decision: divisibility vs padding.** the collectives assert
+      done 8/8: all five cells vs full_tensor() ground truth at 2 and 4
+      ranks (`tests/dtensor.py`, in ci). note: Partial→Replicate reduces a
+      CLONE because all_reduce is in-place (and gloo "avg" pre-divides its
+      input); the source dtensor must keep holding a valid partial term.
+- [x] **decision: divisibility vs padding.** the collectives assert
       divisibility and don't pad. every qwen3 param's dim 0 happens to be
       divisible by 8, so v0 can assert loudly and move on — but write down that
       the first model with an awkward vocab or head count will need padding,
       and where it would go. don't discover this at 3am.
-- [ ] **decision: does the optimizer ever see a dtensor?** if params stay
+- [x] **decision: does the optimizer ever see a dtensor?** decided 8/8,
+      recorded in the dtensor docstring: plain tensors at runtime,
+      placements are bookkeeping. reasoning kept below. if params stay
       plain tensors and dtensor is only used for save/load metadata, fused adamw
       keeps working untouched. if params become dtensors, every `p.grad`,
       `foreach` call, and the clip path has to unwrap. the cheap path is: plain
@@ -87,7 +97,7 @@ roadmap 2.1. bookkeeping wrapper with explicit `redistribute`, **not** a
       it as the reason if you later want real dtensor.
 
 **exit:** every redistribute cell tested against `full_tensor()` ground truth
-on gloo, both directions where they exist.
+on gloo, both directions where they exist. ✅ met 8/8 (`tests/dtensor.py`).
 
 ## stage 2 — sharding + the parameter lifecycle
 

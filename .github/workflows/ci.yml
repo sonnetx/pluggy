@@ -53,6 +53,8 @@ jobs:
         run: uv run --no-sync tests/checkpointer.py
       - name: scheduler shapes + resume
         run: uv run --no-sync tests/scheduler.py
+      - name: dtensor redistribute table (gloo, 4 ranks)
+        run: uv run --no-sync tests/dtensor.py --world-size 4
       - name: ddp grad parity (gloo, 4 ranks)
         run: uv run --no-sync tests/data_parallel.py --world-size 4
       - name: grad clipping (gloo, 2 ranks)
