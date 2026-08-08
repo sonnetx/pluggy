@@ -7,8 +7,9 @@ deps) that serves a single-page config editor and drives runs.
 
 run it from the repo root: config files go to ./configs and output dirs are
 resolved relative to the cwd, same as the cli. runs launch as a subprocess
-of this server (`python -m pluggy.synth.run`), so the server needs the
-[synth] extra + ANTHROPIC_API_KEY in its environment to actually generate.
+of this server (`python -m pluggy.synth.run`), so the server's environment
+needs the provider credentials to actually generate: XAI_API_KEY for grok
+(no extra install), or the [synth] extra + ANTHROPIC_API_KEY for anthropic.
 
 api (all json):
     GET  /api/meta            styles + saved synth configs
@@ -49,6 +50,11 @@ def _is_synth_config(path: Path) -> bool:
 
 def _validate(cfg: dict) -> str | None:
     """returns an error string or None. keep in sync with pipeline.py."""
+    if cfg.get("provider") not in (None, "grok", "anthropic"):
+        return "provider must be 'grok' or 'anthropic'"
+    temp = cfg.get("generation", {}).get("temperature")
+    if temp is not None and not (isinstance(temp, (int, float)) and 0 <= temp <= 2):
+        return "generation.temperature must be a number in [0, 2]"
     domains = cfg.get("seed_domains")
     if not isinstance(domains, list) or not domains or \
             not all(isinstance(d, str) and d.strip() for d in domains):

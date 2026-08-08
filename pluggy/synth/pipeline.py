@@ -39,6 +39,23 @@ def _save_state(path: Path, state: dict):
     tmp.rename(path)
 
 
+def build_client(cfg: dict):
+    """
+    pick the provider from cfg["provider"], falling back to inference from
+    the model name (grok-* -> xai, everything else -> anthropic). both
+    clients expose the same generate_text / generate_json interface.
+    """
+    model = cfg.get("model", "grok-4")
+    provider = cfg.get("provider") or ("grok" if model.startswith("grok") else "anthropic")
+    if provider == "grok":
+        from pluggy.synth.grok import GrokClient
+        return GrokClient(model, temperature=cfg.get("generation", {}).get("temperature"))
+    if provider == "anthropic":
+        from pluggy.synth.llm import SynthClient
+        return SynthClient(model, fallbacks=cfg.get("fallbacks", True))
+    raise ValueError(f"unknown provider {provider!r} (expected 'grok' or 'anthropic')")
+
+
 def _job(client, topic, style, variant, gen_cfg, quality_cfg):
     """generate -> judge -> refine for one doc. returns (key, doc, score)."""
     key = f"{topic['id']}:{style}:{variant}"
@@ -54,9 +71,7 @@ def _job(client, topic, style, variant, gen_cfg, quality_cfg):
 
 def run_pipeline(cfg: dict, client=None):
     if client is None:
-        from pluggy.synth.llm import SynthClient
-        client = SynthClient(cfg.get("model", "claude-opus-5"),
-                             fallbacks=cfg.get("fallbacks", True))
+        client = build_client(cfg)
 
     out_dir = Path(cfg["output"]["dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -138,7 +153,7 @@ def run_pipeline(cfg: dict, client=None):
                       f"{kept} kept / {dropped} dropped / {dupes} dupes")
 
     writer.close(manifest_extra={
-        "model": cfg.get("model", "claude-opus-5"),
+        "model": cfg.get("model", "grok-4"),
         "kept": kept, "dropped": dropped, "dupes": dupes,
     })
     commit_if_flushed(force=True)

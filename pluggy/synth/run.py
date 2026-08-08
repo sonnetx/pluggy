@@ -1,8 +1,9 @@
 """
 cli entry: uv run -m pluggy.synth.run --config configs/synth_pretrain.json
 
-needs ANTHROPIC_API_KEY in the environment (or an `ant auth login` profile)
-and the optional dep: uv pip install -e ".[synth]"
+credentials depend on the config's provider: XAI_API_KEY for grok (stdlib
+http, nothing to install), or ANTHROPIC_API_KEY plus the optional dep
+(uv pip install -e ".[synth]") for anthropic.
 """
 
 import argparse

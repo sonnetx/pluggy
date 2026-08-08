@@ -7,14 +7,16 @@ writes, and resume via state.json.
 uv run tests/synth.py
 """
 
+import io
 import json
+import os
 import shutil
 import tempfile
 
 from pathlib import Path
 
 from pluggy.synth.dedup import Deduper
-from pluggy.synth.pipeline import run_pipeline
+from pluggy.synth.pipeline import build_client, run_pipeline
 from pluggy.synth.writer import ShardWriter
 
 
@@ -135,6 +137,69 @@ def test_refusal_skips(tmp):
     print("refusal skip: ok")
 
 
+def test_provider_inference():
+    os.environ["XAI_API_KEY"] = "test-key"          # constructor check only
+    from pluggy.synth.grok import GrokClient
+    assert isinstance(build_client({"model": "grok-4"}), GrokClient)
+    assert isinstance(build_client({"provider": "grok", "model": "custom"}), GrokClient)
+    c = build_client({"model": "grok-4", "generation": {"temperature": 0.7}})
+    assert c.temperature == 0.7
+    try:
+        build_client({"provider": "nope"})
+        raise AssertionError("unknown provider must raise")
+    except ValueError:
+        pass
+    # anthropic inference is checked by import path only (the sdk may not be
+    # installed in ci); llm.SynthClient imports `anthropic` in __init__
+    print("provider inference: ok")
+
+
+def test_grok_client():
+    os.environ["XAI_API_KEY"] = "test-key"
+    from pluggy.synth import grok
+
+    sent = []
+
+    class FakeResp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def fake_urlopen(req, timeout=None):
+        payload = json.loads(req.data)
+        sent.append((dict(req.header_items()), payload))
+        if "response_format" in payload:
+            content = json.dumps({"score": 8, "weaknesses": "none"})
+        else:
+            content = "generated " * 30
+        return FakeResp(json.dumps({
+            "choices": [{"message": {"content": content}, "finish_reason": "stop"}]
+        }).encode())
+
+    real = grok.urllib.request.urlopen
+    grok.urllib.request.urlopen = fake_urlopen
+    try:
+        client = grok.GrokClient("grok-4", temperature=0.9)
+        text = client.generate_text("write", system="sys", max_tokens=128)
+        assert text.startswith("generated")
+        headers, payload = sent[-1]
+        assert headers["Authorization"] == "Bearer test-key"
+        assert payload["model"] == "grok-4" and payload["temperature"] == 0.9
+        assert payload["messages"][0] == {"role": "system", "content": "sys"}
+
+        out = client.generate_json("score", {"type": "object"})
+        assert out == {"score": 8, "weaknesses": "none"}
+        _, payload = sent[-1]
+        # json calls are deterministic-ish: no temperature, strict schema
+        assert "temperature" not in payload
+        assert payload["response_format"]["json_schema"]["strict"] is True
+    finally:
+        grok.urllib.request.urlopen = real
+    print("grok client: ok")
+
+
 if __name__ == "__main__":
     tmp = Path(tempfile.mkdtemp(prefix="pluggy_synth_test_"))
     try:
@@ -143,6 +208,8 @@ if __name__ == "__main__":
         test_pipeline_end_to_end(tmp)
         test_refine_band(tmp)
         test_refusal_skips(tmp)
+        test_provider_inference()
+        test_grok_client()
         print("all synth tests passed")
     finally:
         shutil.rmtree(tmp)

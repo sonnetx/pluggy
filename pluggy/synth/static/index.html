@@ -88,12 +88,15 @@
       <legend>model</legend>
       <div class="row">
         <div>
-          <label for="model">model</label>
-          <input type="text" id="model" value="claude-opus-5">
+          <label for="provider">provider</label>
+          <select id="provider">
+            <option value="grok" selected>grok (xai)</option>
+            <option value="anthropic">anthropic</option>
+          </select>
         </div>
         <div>
-          <label for="seed">seed</label>
-          <input type="number" id="seed" value="0">
+          <label for="model">model</label>
+          <input type="text" id="model" value="grok-4">
         </div>
       </div>
       <div class="row">
@@ -105,10 +108,20 @@
           <label for="concurrency">concurrency</label>
           <input type="number" id="concurrency" min="1" value="8">
         </div>
+        <div>
+          <label for="seed">seed</label>
+          <input type="number" id="seed" value="0">
+        </div>
       </div>
-      <div class="check">
+      <div class="row">
+        <div id="grok_opts">
+          <label for="temperature">temperature (grok only, blank = provider default)</label>
+          <input type="number" id="temperature" min="0" max="2" step="0.1" value="1.0">
+        </div>
+      </div>
+      <div class="check" id="anthropic_opts">
         <input type="checkbox" id="fallbacks" checked>
-        <span>refusal fallbacks <small>(retry safety declines on a fallback model server-side)</small></span>
+        <span>refusal fallbacks <small>(anthropic only: retry safety declines on a fallback model server-side)</small></span>
       </div>
     </fieldset>
 
@@ -190,21 +203,27 @@ const DEFAULT_DOMAINS = [
 ];
 let STYLE_NAMES = [];
 
+const MODEL_DEFAULTS = { grok: "grok-4", anthropic: "claude-opus-5" };
+
 function buildConfig() {
   const domains = $("domains").value.split("\n").map(s => s.trim()).filter(Boolean);
   const styles = STYLE_NAMES.filter(s => $("style_" + s).checked);
-  return {
+  const provider = $("provider").value;
+  const generation = {
+    docs_per_topic: +$("docs_per_topic").value,
+    styles: styles,
+    max_tokens: +$("max_tokens").value,
+    concurrency: +$("concurrency").value,
+  };
+  if (provider === "grok" && $("temperature").value !== "")
+    generation.temperature = +$("temperature").value;
+  const cfg = {
+    provider: provider,
     model: $("model").value.trim(),
-    fallbacks: $("fallbacks").checked,
     seed: +$("seed").value,
     seed_domains: domains,
     taxonomy: { subtopics_per_domain: +$("subtopics").value },
-    generation: {
-      docs_per_topic: +$("docs_per_topic").value,
-      styles: styles,
-      max_tokens: +$("max_tokens").value,
-      concurrency: +$("concurrency").value,
-    },
+    generation: generation,
     quality: {
       enabled: $("q_enabled").checked,
       min_score: +$("min_score").value,
@@ -214,6 +233,18 @@ function buildConfig() {
     dedup: { ngram: +$("ngram").value, jaccard_threshold: +$("jaccard").value },
     output: { dir: $("out_dir").value.trim(), shard_docs: +$("shard_docs").value },
   };
+  if (provider === "anthropic") cfg.fallbacks = $("fallbacks").checked;
+  return cfg;
+}
+
+function syncProvider(resetModel) {
+  const provider = $("provider").value;
+  $("grok_opts").style.display = provider === "grok" ? "" : "none";
+  $("anthropic_opts").style.display = provider === "anthropic" ? "" : "none";
+  const other = provider === "grok" ? "anthropic" : "grok";
+  if (resetModel && (!$("model").value.trim() ||
+      $("model").value.trim() === MODEL_DEFAULTS[other]))
+    $("model").value = MODEL_DEFAULTS[provider];
 }
 
 function applyConfig(cfg) {
@@ -224,7 +255,11 @@ function applyConfig(cfg) {
   $("max_tokens").value = g.max_tokens ?? 4096;
   $("concurrency").value = g.concurrency ?? 8;
   STYLE_NAMES.forEach(s => $("style_" + s).checked = !g.styles || g.styles.includes(s));
-  $("model").value = cfg.model ?? "claude-opus-5";
+  const model = cfg.model ?? "grok-4";
+  $("provider").value = cfg.provider ?? (model.startsWith("grok") ? "grok" : "anthropic");
+  $("model").value = model;
+  $("temperature").value = g.temperature ?? "";
+  syncProvider(false);
   $("seed").value = cfg.seed ?? 0;
   $("fallbacks").checked = cfg.fallbacks ?? true;
   const q = cfg.quality || {};
@@ -333,8 +368,10 @@ $("cfg_load").onchange = async () => {
   } catch (e) { msg(e.message, false); }
 };
 document.querySelectorAll("input, textarea").forEach(el => el.addEventListener("input", preview));
+$("provider").onchange = () => { syncProvider(true); preview(); };
 
 $("domains").value = DEFAULT_DOMAINS.join("\n");
+syncProvider(false);
 loadMeta().then(preview).catch(e => msg(e.message, false));
 setInterval(() => poll().catch(() => {}), 2000);
 poll().catch(() => {});

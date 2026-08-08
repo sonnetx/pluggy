@@ -1,8 +1,9 @@
 """
 stage 2: document generation. diversity comes from the conditioning grid
-(topic x style x variant index), not from sampling params -- claude-opus-5
-rejects temperature/top_p, so each variant gets an explicit "angle" nudge in
-the prompt instead.
+(topic x style x variant index): each variant gets an explicit "angle"
+nudge in the prompt. sampling temperature stacks on top where the provider
+supports it (grok does, via generation.temperature; claude-opus-5 rejects
+sampling params, so there the grid is the whole story).
 """
 
 STYLES = {

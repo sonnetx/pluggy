@@ -1,6 +1,6 @@
 {
-  "model": "claude-opus-5",
-  "fallbacks": true,
+  "provider": "grok",
+  "model": "grok-4",
   "seed": 0,
   "seed_domains": [
     "computer science and programming",
@@ -19,7 +19,8 @@
     "docs_per_topic": 5,
     "styles": ["textbook", "tutorial", "qa", "essay", "reference"],
     "max_tokens": 4096,
-    "concurrency": 8
+    "concurrency": 8,
+    "temperature": 1.0
   },
   "quality": {
     "enabled": true,

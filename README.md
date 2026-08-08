@@ -83,24 +83,31 @@ sharded jsonl. the output streams into the same dataloader as hub datasets,
 so generating a corpus and training on it is two commands:
 
 ```bash
-# needs the optional dep + ANTHROPIC_API_KEY in the env
-uv pip install -e ".[synth]"
-
-# 1. generate the corpus (resumable: state.json + complete-shard fencing)
+# 1. generate the corpus (resumable: state.json + complete-shard fencing).
+# default provider is grok: just export XAI_API_KEY, nothing to install
 uv run -m pluggy.synth.run --config configs/synth_pretrain.json
 
 # 2. train on it (data.data_files globs the shards; no hub involved)
 uv run -m pluggy.train.train --config configs/qwen3_dense_synth.json
 ```
 
-model calls default to claude-opus-5 with server-side refusal fallbacks
-enabled, so the occasional false-positive safety decline retries on a
-fallback model inside the same request instead of dropping the sample.
-everything is driven by the json config: seed domains, docs per topic,
-styles, judge thresholds, refine rounds, dedup jaccard threshold, shard
-size. the llm sits behind a two-method interface (`generate_text` /
-`generate_json`), so the orchestration is fully testable without network
-(`tests/synth.py`) and other providers are a small adapter away.
+two providers sit behind the same two-method client interface
+(`generate_text` / `generate_json`), selected by `provider` in the config
+(or inferred from the model name):
+
+- **grok (default)** — xai's openai-compatible api over stdlib http, zero
+  extra deps; needs `XAI_API_KEY`. supports `generation.temperature` for
+  sampling diversity on top of the prompt grid
+- **anthropic** — needs `uv pip install -e ".[synth]"` +
+  `ANTHROPIC_API_KEY`; runs claude-opus-5 with server-side refusal
+  fallbacks enabled, so the occasional false-positive safety decline
+  retries on a fallback model inside the same request instead of dropping
+  the sample
+
+everything is driven by the json config: provider, seed domains, docs per
+topic, styles, judge thresholds, refine rounds, dedup jaccard threshold,
+shard size. the orchestration is fully testable without network
+(`tests/synth.py`) and further providers are a small adapter away.
 
 ### frontend
 
