@@ -77,11 +77,22 @@
 
           <div class="card wide" data-section="Model">
             <div class="card-head"><h2>Model</h2>
-              <span class="note">dense qwen3, trained from scratch</span>
+              <span class="note">trained from scratch — no pretrained weights loaded</span>
+              <div class="right">
+                <button id="to_expert" type="button">Open in Expert</button>
+              </div>
             </div>
-            <div class="card-body flush">
-              <div class="picker" id="model_picker"></div>
+            <div class="card-body">
+              <button type="button" class="selector" id="model_open">
+                <span class="body">
+                  <span class="name" id="sel_name">—</span>
+                  <span class="desc" id="sel_desc">—</span>
+                </span>
+                <span class="val" id="sel_val"></span>
+                <svg class="chev" viewBox="0 0 24 24"><path d="M8 10l4 4 4-4"/></svg>
+              </button>
             </div>
+            <div class="cmd" id="model_note"></div>
           </div>
 
           <div class="card" data-section="Dataset">
@@ -453,6 +464,36 @@
   </div>
 </div>
 
+<dialog class="modal" id="model_modal">
+  <div class="modal-head">
+    <h2>Select model</h2>
+    <span class="note">architecture, then size</span>
+    <div class="right">
+      <button type="button" class="icon" id="modal_x" aria-label="Close">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="modal-body">
+    <div class="split">
+      <div class="pane">
+        <div class="pane-head">Architecture</div>
+        <div class="picker" id="arch_picker"></div>
+      </div>
+      <div class="pane">
+        <div class="pane-head">Size <span class="right" id="size_head">—</span></div>
+        <div class="picker" id="size_picker"></div>
+      </div>
+    </div>
+  </div>
+  <div class="modal-foot">
+    <span id="modal_hint">Pick a size to confirm.</span>
+    <div class="right">
+      <button type="button" id="modal_cancel">Cancel</button>
+    </div>
+  </div>
+</dialog>
+
 <script>
 const $ = id => document.getElementById(id);
 const num = id => +$(id).value;
@@ -473,13 +514,45 @@ const money = n => "$" + n.toLocaleString("en-US", { maximumFractionDigits: 0 })
  * multi-gpu ddp scaling point from the same table. prices are indicative
  * rental rates, not a real quote.
  */
-const PRESETS = [
-  { id: "qwen3_0_6b", name: "Qwen3 0.6B", layers: 28, heads: 16, kv: 8, hd: 128,
-    emb: 1024, ffn: null, vocab: 151936, desc: "fastest to train, fits one gpu" },
-  { id: "qwen3_1_7b", name: "Qwen3 1.7B", layers: 28, heads: 16, kv: 8, hd: 128,
-    emb: 2048, ffn: 6144, vocab: 151936, desc: "balanced quality per gpu-hour" },
-  { id: "qwen3_4b", name: "Qwen3 4B", layers: 36, heads: 32, kv: 8, hd: 128,
-    emb: 2560, ffn: 9728, vocab: 151936, desc: "best quality, needs 4+ gpus" },
+/* architectures and their sizes.
+ *
+ * to add an arch: append an entry here with `registered` matching whether it
+ * is live in pluggy/models/builder.py's MODEL_REGISTRY, and give it sizes.
+ * `origin` labels where a size's dims came from -- an upstream config name,
+ * or "pluggy" for ones derived here (see the smart-config note below).
+ *
+ * sizes marked with an upstream `origin` are that model's published config
+ * verbatim; all of them tie lm_head to the token embedding, which is what
+ * pluggy's model classes do, so the computed param counts match what would
+ * actually be built.
+ */
+const ARCHS = [
+  {
+    id: "qwen3_dense", name: "Qwen3 Dense", registered: true,
+    desc: "GQA · SwiGLU · RMSNorm · tied emb",
+    vocab: 151936, tokenizer: "Qwen/Qwen3-0.6B",
+    sizes: [
+      // scaled down from 0.6B on qwen3's own ratios (ffn ~2.7x emb, 4:1 gqa)
+      // for smoke tests and single-gpu runs -- no upstream config this small
+      { id: "q-190m", name: "190M", origin: "pluggy", layers: 12, heads: 12, kv: 4, hd: 64, emb: 768, ffn: 2048 },
+      { id: "q-0.6b", name: "0.6B", origin: "Qwen3-0.6B", layers: 28, heads: 16, kv: 8, hd: 128, emb: 1024, ffn: 3072 },
+      { id: "q-1.7b", name: "1.7B", origin: "Qwen3-1.7B", layers: 28, heads: 16, kv: 8, hd: 128, emb: 2048, ffn: 6144 },
+      { id: "q-4b", name: "4B", origin: "Qwen3-4B", layers: 36, heads: 32, kv: 8, hd: 128, emb: 2560, ffn: 9728 },
+    ],
+  },
+  {
+    id: "llama3_2", name: "Llama 3.2", registered: false,
+    desc: "GQA · SwiGLU · RMSNorm · tied emb",
+    vocab: 128256, tokenizer: "meta-llama/Llama-3.2-1B",
+    sizes: [
+      // llama 3.2 only ships 1B and 3B text models, so the two small configs
+      // are interpolated down on its ratios (ffn 4x emb, head_dim 64)
+      { id: "l-200m", name: "200M", origin: "pluggy", layers: 12, heads: 12, kv: 4, hd: 64, emb: 768, ffn: 3072 },
+      { id: "l-540m", name: "540M", origin: "pluggy", layers: 16, heads: 20, kv: 4, hd: 64, emb: 1280, ffn: 5120 },
+      { id: "l-1b", name: "1B", origin: "Llama-3.2-1B", layers: 16, heads: 32, kv: 8, hd: 64, emb: 2048, ffn: 8192 },
+      { id: "l-3b", name: "3B", origin: "Llama-3.2-3B", layers: 28, heads: 24, kv: 8, hd: 128, emb: 3072, ffn: 8192 },
+    ],
+  },
 ];
 const DATASETS = [
   { id: "climbmix", name: "ClimbMix", hf: "OptimalScale/ClimbMix",
@@ -495,19 +568,24 @@ const GPUS = [
 ];
 const REF_PARAMS = 5.74e8;   // the 0.6B model those tps figures were measured on
 
-let picked = { model: PRESETS[0], data: DATASETS[0], gpu: GPUS[2] };
+let picked = { arch: ARCHS[0], size: ARCHS[0].sizes[1], data: DATASETS[0], gpu: GPUS[2] };
 
 /* ---------- shared math ---------- */
 function ffnOf(emb, explicit) {
   return explicit || 256 * Math.ceil(Math.floor(8 * emb / 3) / 256);
 }
-function paramsOf(m) {
+function paramsOf(m, vocab) {
+  const V = vocab === undefined ? m.vocab : vocab;
   const ffn = ffnOf(m.emb, m.ffn);
   const attn = m.emb * m.heads * m.hd + 2 * m.emb * m.kv * m.hd + m.heads * m.hd * m.emb;
   const mlp = 3 * m.emb * ffn;
   const norms = 2 * m.emb + 2 * m.hd;   // pre-attn/pre-mlp rmsnorm + q/k norm
-  return { nonEmbed: m.layers * (attn + mlp + norms) + m.emb, embed: m.vocab * m.emb };
+  return { nonEmbed: m.layers * (attn + mlp + norms) + m.emb, embed: V * m.emb };
 }
+const totalOf = (m, vocab) => {
+  const p = paramsOf(m, vocab);
+  return p.nonEmbed + p.embed;
+};
 // linear in gpu count between the 1-gpu ideal and the measured scaling point
 function scalingEff(gpu, n) {
   if (n <= 1) return 1;
@@ -515,45 +593,119 @@ function scalingEff(gpu, n) {
   return Math.max(0.3, Math.min(1, e));
 }
 
-/* ---------- pickers ---------- */
-function renderPicker(host, items, group, current, fmt) {
-  host.innerHTML = items.map(it => `
-    <label class="opt${it.id === current.id ? " on" : ""}" data-id="${it.id}">
-      <input type="radio" name="${group}" value="${it.id}"${it.id === current.id ? " checked" : ""}>
-      <span class="body"><span class="name">${it.name}</span>
-        <span class="desc">${it.desc}</span></span>
-      <span class="val">${fmt(it)}</span>
+/* ---------- pickers ----------
+ * rows are display objects: {id, name, desc, val, disabled}. `val` is html
+ * so a row can carry a secondary line.
+ */
+function renderPicker(host, rows, group, currentId, onSelect) {
+  host.innerHTML = rows.map(r => `
+    <label class="opt${r.id === currentId ? " on" : ""}${r.disabled ? " off" : ""}" data-id="${r.id}">
+      <input type="radio" name="${group}" value="${r.id}"
+        ${r.id === currentId ? " checked" : ""}${r.disabled ? " disabled" : ""}>
+      <span class="body"><span class="name">${r.name}</span>
+        <span class="desc">${r.desc}</span></span>
+      <span class="val">${r.val}</span>
     </label>`).join("");
   host.querySelectorAll("input").forEach(input => {
     input.onchange = () => {
       host.querySelectorAll(".opt").forEach(o =>
         o.classList.toggle("on", o.dataset.id === input.value));
-      picked[group] = items.find(i => i.id === input.value);
-      if (group === "data") {
-        $("data_custom_wrap").style.display = input.value === "custom" ? "" : "none";
-      }
-      managed();
+      onSelect(input.value);
     };
   });
 }
 
-function initPickers() {
-  renderPicker($("model_picker"), PRESETS, "model", picked.model, m => {
-    const p = paramsOf(m);
-    return `${compact(p.nonEmbed + p.embed)}<small>${m.layers}L · ${m.emb}d</small>`;
+function archRows() {
+  return ARCHS.map(a => ({
+    id: a.id,
+    name: a.name + (a.registered ? "" : ' <span class="tag">stub</span>'),
+    desc: a.desc,
+    val: `${a.sizes.length} sizes<small>vocab ${compact(a.vocab)}</small>`,
+    disabled: false,   // selectable so its sizes are browsable; launch is gated
+  }));
+}
+
+function sizeRows(arch) {
+  return arch.sizes.map(s => ({
+    id: s.id,
+    name: s.name,
+    desc: `${s.layers}L · ${s.emb}d · ${s.heads}/${s.kv} heads · ffn ${s.ffn}`,
+    val: `${compact(totalOf(s, arch.vocab))}<small>${
+      s.origin === "pluggy" ? "derived config" : s.origin}</small>`,
+  }));
+}
+
+/* ---------- model modal ----------
+ * selections are staged in `pending` and only committed when a size is
+ * clicked, so cancelling (or Esc) leaves `picked` untouched.
+ */
+let pending = null;
+
+function renderPendingSizes() {
+  renderPicker($("size_picker"), sizeRows(pending.arch), "size", pending.size.id, id => {
+    pending.size = pending.arch.sizes.find(s => s.id === id);
+    picked.arch = pending.arch;
+    picked.size = pending.size;
+    $("model_modal").close();
+    managed();
   });
-  renderPicker($("data_picker"), DATASETS, "data", picked.data, d =>
-    `${d.val}<small>${d.hf || "your choice"}</small>`);
-  renderPicker($("gpu_picker"), GPUS, "gpu", picked.gpu, g =>
-    `${money(g.price)}/hr<small>${g.vram} GB · ${compact(g.tps)} tps</small>`);
+  $("size_head").textContent = pending.arch.name;
+}
+
+function renderPendingArchs() {
+  renderPicker($("arch_picker"), archRows(), "arch", pending.arch.id, id => {
+    pending.arch = ARCHS.find(a => a.id === id);
+    // default to the smallest upstream config, else the smallest overall
+    pending.size = pending.arch.sizes.find(s => s.origin !== "pluggy") || pending.arch.sizes[0];
+    renderPendingSizes();
+  });
+}
+
+function openModal() {
+  pending = { arch: picked.arch, size: picked.size };
+  renderPendingArchs();
+  renderPendingSizes();
+  $("model_modal").showModal();
+}
+
+function renderSelector() {
+  const arch = picked.arch, m = picked.size;
+  $("sel_name").innerHTML = `${arch.name} · ${m.name}` +
+    (arch.registered ? "" : ' <span class="tag">stub</span>');
+  $("sel_desc").textContent =
+    `${m.layers}L · ${m.emb}d · ${m.heads}/${m.kv} heads · ffn ${m.ffn} · vocab ${arch.vocab}`;
+  $("sel_val").innerHTML = `${compact(totalOf(m, arch.vocab))}<small>${
+    m.origin === "pluggy" ? "derived config" : m.origin}</small>`;
+}
+
+function initPickers() {
+  renderPicker($("data_picker"), DATASETS.map(d => ({
+    id: d.id, name: d.name, desc: d.desc,
+    val: `${d.val}<small>${d.hf || "your choice"}</small>`,
+  })), "data", picked.data.id, id => {
+    picked.data = DATASETS.find(d => d.id === id);
+    $("data_custom_wrap").style.display = id === "custom" ? "" : "none";
+    managed();
+  });
+  renderPicker($("gpu_picker"), GPUS.map(g => ({
+    id: g.id, name: g.name, desc: `${g.vram} GB vram`,
+    val: `${money(g.price)}/hr<small>${compact(g.tps)} tok/s single-gpu</small>`,
+  })), "gpu", picked.gpu.id, id => {
+    picked.gpu = GPUS.find(x => x.id === id);
+    managed();
+  });
+
+  // expert's arch select is driven by the same catalogue
+  $("m_name").innerHTML = ARCHS.map(a =>
+    `<option value="${a.id}"${a.registered ? "" : " disabled"}>${a.name}` +
+    `${a.registered ? "" : " — unregistered"}</option>`).join("");
 }
 
 /* ---------- managed estimate ---------- */
 function managed() {
-  const m = picked.model, gpu = picked.gpu;
+  const arch = picked.arch, m = picked.size, gpu = picked.gpu;
   const n = num("mg_count"), hours = Math.max(0, num("mg_hours"));
-  const p = paramsOf(m);
-  const total = p.nonEmbed + p.embed;
+  const total = totalOf(m, arch.vocab);
 
   // measured tps scaled by compute per token (~linear in params), then by
   // the ddp scaling efficiency at this gpu count
@@ -583,14 +735,49 @@ function managed() {
     `qwen3 0.6B, scaled by parameter count and by ddp scaling efficiency — a projection, ` +
     `not a guarantee. rental prices are indicative.`;
 
+  renderSelector();
+  $("model_note").innerHTML = arch.registered
+    ? `<b>${arch.name} ${m.name}</b> · tokenizer <b>${arch.tokenizer}</b> · ` +
+      (m.origin === "pluggy"
+        ? "dims derived here on this arch's own ratios — no upstream config this small"
+        : `dims from <b>${m.origin}</b>`) +
+      `. weights are randomly initialised; pluggy pretrains, it does not fine-tune.`
+    : `<b>${arch.name}</b> is not in MODEL_REGISTRY yet — ` +
+      `pluggy/models/builder.py maps it to None, so a run would fail at build_model. ` +
+      `sizes are browsable, launching is disabled.`;
+
+  const launchable = arch.registered;
+  $("launch").disabled = !launchable;
+
   $("head_name").textContent = $("mg_name").value || "untitled";
   $("crumb_cfg").textContent = $("mg_name").value || "untitled";
   $("head_params").textContent = compact(total) + " params";
   $("head_meta").innerHTML =
-    `<span>${m.name}</span><span class="sep">·</span>` +
+    `<span>${arch.name} ${m.name}</span><span class="sep">·</span>` +
     `<span>${n}× ${gpu.name}</span><span class="sep">·</span>` +
     `<span>${picked.data.id === "custom" ? ($("mg_custom").value || "custom dataset")
                                           : picked.data.hf}</span>`;
+}
+
+/* copy the managed selection into the expert fields, then switch */
+function openInExpert() {
+  const arch = picked.arch, m = picked.size;
+  $("m_layers").value = m.layers;
+  $("m_heads").value = m.heads;
+  $("m_kv_heads").value = m.kv;
+  $("m_head_dim").value = m.hd;
+  $("m_emb").value = m.emb;
+  $("m_ffn").value = m.ffn;
+  $("m_vocab").value = arch.vocab;
+  $("m_name").value = arch.id;
+  $("d_tok").value = arch.tokenizer;
+  if (picked.data.hf) $("d_name").value = picked.data.hf;
+  $("p_dp").value = num("mg_count");
+  $("r_name").value = $("mg_name").value;
+  $("cfg_name").value = $("mg_name").value;
+  document.querySelectorAll("#mode_seg button").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.val === "expert")));
+  setMode("expert");
 }
 
 /* ---------- expert ---------- */
@@ -670,6 +857,8 @@ function setMode(next) {
   $("bench").style.display = managedOn ? "none" : "";
   $("save").style.display = managedOn ? "none" : "";
   $("launch").textContent = managedOn ? "Rent GPUs + launch" : "Launch run";
+  // managed() re-gates this on the arch being registered; expert always allows
+  if (!managedOn) $("launch").disabled = false;
   try { localStorage.setItem("pluggy-train-mode", next); } catch (e) { /* session-only */ }
   refresh();
   if (window.pluggyUI) window.pluggyUI.rebuildSectionNav();
@@ -692,6 +881,12 @@ function msg(text, ok) {
 }
 const notWired = () => msg("not wired up yet — ui only", false);
 ["launch", "save", "bench", "stop"].forEach(id => $(id).onclick = notWired);
+$("to_expert").onclick = openInExpert;
+$("model_open").onclick = openModal;
+$("modal_x").onclick = () => $("model_modal").close();
+$("modal_cancel").onclick = () => $("model_modal").close();
+// click on the backdrop (i.e. outside the panel) dismisses too
+$("model_modal").onclick = e => { if (e.target === $("model_modal")) $("model_modal").close(); };
 
 document.querySelectorAll("input, select").forEach(el => {
   el.addEventListener("input", refresh);

@@ -1,0 +1,63 @@
+{
+  "model": {
+    "name": "llama3_2",
+    "config": {
+      "num_layers": 16,
+      "num_heads": 32,
+      "num_kv_heads": 8,
+      "emb_dim": 2048,
+      "head_dim": 64,
+      "ffn_dim": 8192,
+      "vocab_size": 128256,
+      "rope_base": 500000.0
+    }
+  },
+  "mesh": {
+    "dp": 1
+  },
+  "optimizer": {
+    "name": "adamw",
+    "config": {
+      "lr": 3e-4,
+      "weight_decay": 0.1,
+      "betas": [0.9, 0.95],
+      "fused": true
+    },
+    "max_norm": 1.0,
+    "scheduler": {
+      "type": "wsd",
+      "warmup_ratio": 0.001,
+      "decay_ratio": 0.1,
+      "total_steps": 100
+    }
+  },
+  "objective": {
+    "name": "AR",
+    "config": {
+      "ignore_index": -100,
+      "fused_linear_ce": true,
+      "ce_chunk_size": 4096
+    }
+  },
+  "data": {
+    "name": "OptimalScale/ClimbMix",
+    "split": "train",
+    "tokenizer": "unsloth/Llama-3.2-1B",
+    "eos_token": "<|end_of_text|>",
+    "pad_token": "<|finetune_right_pad_id|>",
+    "text_field": "text",
+    "shuffle_buffer": 1000,
+    "seed": 42,
+    "num_workers": 4,
+    "global_batch_size": 2,
+    "micro_batch_size": 2,
+    "seq_len": 4096,
+    "pack_batch": 1000
+  },
+  "checkpointing": {
+    "save_steps": 10000,
+    "resume": null
+  },
+  "seed": 0,
+  "run_name": "llama3_2_1b_climbmix"
+}
