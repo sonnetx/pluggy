@@ -41,7 +41,10 @@ class StubClient:
         if "Rewrite the document" in prompt:
             self.calls["refine"] += 1
             return "refined " + "content " * 40
-        self.calls["generate"] += 1
+        if "<source>" in prompt:
+            self.calls["grounded"] = self.calls.get("grounded", 0) + 1
+        else:
+            self.calls["generate"] += 1
         for t in self.refuse_topics:
             if t in prompt:
                 return None
@@ -137,6 +140,44 @@ def test_refusal_skips(tmp):
     print("refusal skip: ok")
 
 
+def test_grounded_pipeline(tmp):
+    # uploads: 2 docs of 50 words; chunk_words=20 -> chunks of 20/20/10 words
+    # per doc, all >= the 20//4 minimum, so 6 chunks. 2 modes x
+    # gens_per_chunk=2 -> 2 docs per chunk -> 12 jobs, no taxonomy at all.
+    uploads = tmp / "uploads" / "acme"
+    uploads.mkdir(parents=True)
+    with open(uploads / "docs.jsonl", "w") as f:
+        for d in range(2):
+            f.write(json.dumps({"text": " ".join(f"w{d}_{i}" for i in range(50))}) + "\n")
+
+    out = tmp / "grounded_run"
+    cfg = base_cfg(out)
+    del cfg["seed_domains"]
+    cfg["grounding"] = {"dir": str(uploads), "modes": ["rephrase", "qa"],
+                        "gens_per_chunk": 2, "chunk_words": 20}
+    client = StubClient(judge_score=8)
+    stats = run_pipeline(cfg, client=client)
+    assert stats["kept"] == 12, stats
+    assert client.calls["taxonomy"] == 0 and client.calls["generate"] == 0
+    assert client.calls["grounded"] == 12
+    assert client.calls["judge"] == 12
+    rows = [json.loads(line) for s in sorted(out.glob("shard-*.jsonl"))
+            for line in open(s)]
+    assert all(r["mode"] in ("rephrase", "qa") and "chunk_id" in r for r in rows)
+    # resume: no chunking drift, nothing to redo
+    stats2 = run_pipeline(cfg, client=StubClient())
+    assert stats2["kept"] == 0
+    # changed uploads under the same output dir must refuse to resume
+    with open(uploads / "more.jsonl", "w") as f:
+        f.write(json.dumps({"text": " ".join(f"x{i}" for i in range(50))}) + "\n")
+    try:
+        run_pipeline(cfg, client=StubClient())
+        raise RuntimeError("changed uploads must refuse resume")
+    except AssertionError as e:
+        assert "fresh output dir" in str(e)
+    print("grounded pipeline + resume fencing: ok")
+
+
 def test_provider_inference():
     os.environ["XAI_API_KEY"] = "test-key"          # constructor check only
     from pluggy.synth.grok import GrokClient
@@ -208,6 +249,7 @@ if __name__ == "__main__":
         test_pipeline_end_to_end(tmp)
         test_refine_band(tmp)
         test_refusal_skips(tmp)
+        test_grounded_pipeline(tmp)
         test_provider_inference()
         test_grok_client()
         print("all synth tests passed")

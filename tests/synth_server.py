@@ -32,6 +32,18 @@ def request(base, path, body=None):
         return e.code, json.loads(e.read())
 
 
+def upload(base, dataset, filename, data: bytes):
+    req = urllib.request.Request(
+        f"{base}/api/upload?dataset={dataset}&filename={filename}",
+        data=data, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
 def good_config():
     return {
         "model": "claude-opus-5",
@@ -90,6 +102,36 @@ def main():
     assert code == 409
     code, _ = request(base, "/api/run", {"name": "missing"})
     assert code == 404
+
+    # uploads: every format normalizes to {"text": ...} jsonl
+    code, out = upload(base, "acme", "notes.txt", b"plain text doc about widgets")
+    assert code == 200 and out["docs"] == 1, out
+    rows = [json.dumps({"text": f"row {i}"}) for i in range(3)]
+    code, out = upload(base, "acme", "rows.jsonl", "\n".join(rows).encode())
+    assert code == 200 and out["docs"] == 3, out
+    code, out = upload(base, "acme", "list.json",
+                       json.dumps(["a doc", {"text": "another doc"}]).encode())
+    assert code == 200 and out["docs"] == 2, out
+    code, out = upload(base, "acme", "img.png", b"\x89PNG binary")
+    assert code == 400, "binary must be rejected"
+    code, out = upload(base, "../evil", "x.txt", b"hi")
+    assert code == 400, "path traversal in dataset must be rejected"
+    code, meta = request(base, "/api/meta")
+    ds = next(u for u in meta["uploads"] if u["name"] == "acme")
+    assert ds["docs"] == 6 and ds["words"] > 0, ds
+    assert "rephrase" in meta["grounded_modes"]
+
+    # grounding-only config validates; broken grounding configs don't
+    grounded = {**good_config(), "grounding": {"dir": "data/uploads/acme"}}
+    del grounded["seed_domains"]
+    code, out = request(base, "/api/config", {"name": "grounded", "config": grounded})
+    assert code == 200, out
+    code, out = request(base, "/api/config", {
+        "name": "bad", "config": {**grounded, "grounding": {"dir": "d", "modes": ["nope"]}}})
+    assert code == 400
+    no_work = {k: v for k, v in good_config().items() if k != "seed_domains"}
+    code, out = request(base, "/api/config", {"name": "bad", "config": no_work})
+    assert code == 400, "config with neither domains nor grounding must be rejected"
 
     httpd.shutdown()
     print("all synth server tests passed")

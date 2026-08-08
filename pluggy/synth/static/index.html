@@ -101,6 +101,48 @@
           <div class="card-body checks" id="styles"></div>
         </div>
 
+        <div class="card wide" data-section="Your data">
+          <div class="card-head"><h2>Your data</h2>
+            <div class="right"><span class="note" id="uploads_note">no uploads yet</span></div>
+          </div>
+          <div class="card-body">
+            <div class="row">
+              <div class="field">
+                <label for="up_name">Dataset name</label>
+                <input type="text" id="up_name" value="customer">
+              </div>
+              <div class="field">
+                <label for="up_files">Files <span class="hint">— .txt .md .jsonl .json</span></label>
+                <input type="file" id="up_files" multiple>
+              </div>
+              <div class="field" style="justify-content:flex-end">
+                <button id="upload" type="button">Upload</button>
+              </div>
+            </div>
+            <div class="check">
+              <input type="checkbox" id="g_enabled">
+              <label for="g_enabled">Ground generation in uploaded documents
+                <small>— synthesize from your docs, judged for faithfulness to the source</small></label>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label for="g_dataset">Dataset</label>
+                <select id="g_dataset"></select>
+              </div>
+              <div class="field">
+                <label for="g_gens">Gens per chunk</label>
+                <input type="number" id="g_gens" min="1" value="2">
+              </div>
+              <div class="field">
+                <label for="g_chunk_words">Chunk words</label>
+                <input type="number" id="g_chunk_words" min="50" value="600">
+              </div>
+            </div>
+            <div class="checks" id="g_modes"></div>
+          </div>
+          <div class="cmd" id="g_note"></div>
+        </div>
+
         <div class="card" data-section="Generation">
           <div class="card-head"><h2>Generation</h2>
             <div class="right"><span class="note" id="provider_note">xai api</span></div>
@@ -246,6 +288,8 @@ const DEFAULT_DOMAINS = [
   "engineering", "linguistics and writing",
 ];
 let STYLE_NAMES = [];
+let MODE_NAMES = [];
+let UPLOADS = [];
 
 const MODEL_DEFAULTS = { grok: "grok-4", anthropic: "claude-opus-5" };
 
@@ -278,7 +322,25 @@ function buildConfig() {
     output: { dir: $("out_dir").value.trim(), shard_docs: +$("shard_docs").value },
   };
   if (provider === "anthropic") cfg.fallbacks = $("fallbacks").checked;
+  if ($("g_enabled").checked && $("g_dataset").value) {
+    cfg.grounding = {
+      dir: "data/uploads/" + $("g_dataset").value,
+      modes: MODE_NAMES.filter(m => $("mode_" + m).checked),
+      gens_per_chunk: +$("g_gens").value,
+      chunk_words: +$("g_chunk_words").value,
+    };
+  }
   return cfg;
+}
+
+// chunks are word windows over the uploaded docs, so the doc count is a floor
+// (a doc shorter than one window still yields a chunk)
+function groundedEstimate() {
+  if (!$("g_enabled").checked || !$("g_dataset").value) return 0;
+  const ds = UPLOADS.find(u => u.name === $("g_dataset").value);
+  if (!ds) return 0;
+  const chunks = Math.max(ds.docs, Math.round(ds.words / +$("g_chunk_words").value));
+  return chunks * +$("g_gens").value;
 }
 
 function syncProvider(resetModel) {
@@ -318,6 +380,14 @@ function applyConfig(cfg) {
   $("jaccard").value = d.jaccard_threshold ?? 0.8;
   $("out_dir").value = cfg.output?.dir ?? "data/synth_v0";
   $("shard_docs").value = cfg.output?.shard_docs ?? 500;
+  const gr = cfg.grounding;
+  $("g_enabled").checked = !!gr;
+  if (gr) {
+    $("g_dataset").value = (gr.dir || "").replace(/^data\/uploads\//, "");
+    $("g_gens").value = gr.gens_per_chunk ?? 2;
+    $("g_chunk_words").value = gr.chunk_words ?? 600;
+    MODE_NAMES.forEach(m => $("mode_" + m).checked = !gr.modes || gr.modes.includes(m));
+  }
   preview();
 }
 
@@ -329,7 +399,9 @@ const compact = n =>
 function preview() {
   const cfg = buildConfig();
   const topics = cfg.seed_domains.length * cfg.taxonomy.subtopics_per_domain;
-  const docs = topics * cfg.generation.docs_per_topic;
+  const topicDocs = topics * cfg.generation.docs_per_topic;
+  const groundedDocs = groundedEstimate();
+  const docs = topicDocs + groundedDocs;
   const perDoc = 1 + (cfg.quality.enabled ? 1 + cfg.quality.max_refine_rounds : 0);
   const calls = cfg.seed_domains.length + docs * perDoc;
   const shards = Math.ceil(docs / Math.max(1, cfg.output.shard_docs));
@@ -337,11 +409,16 @@ function preview() {
   const rows = [
     ["Seed domains", cfg.seed_domains.length, ""],
     ["Topics", compact(topics), "domains × subtopics"],
-    ["Documents", compact(docs), "topics × docs per topic"],
+    ["Topic documents", compact(topicDocs), "topics × docs per topic"],
+  ];
+  if (groundedDocs)
+    rows.push(["Grounded documents", compact(groundedDocs), "chunks × gens per chunk"]);
+  rows.push(
+    ["Documents", compact(docs), groundedDocs ? "topic + grounded" : "total"],
     ["Generated tokens", compact(docs * cfg.generation.max_tokens), "at the per-doc cap"],
     ["LLM calls", compact(calls), perDoc + " per doc + taxonomy"],
     ["Shards", shards, cfg.output.shard_docs + " docs each"],
-  ];
+  );
   $("preview").innerHTML = rows.map(([k, v, sub]) =>
     `<tr><td class="key">${k}${sub ? `<small>${sub}</small>` : ""}</td>` +
     `<td class="num">${v}</td></tr>`).join("");
@@ -364,6 +441,12 @@ function preview() {
   $("corpus_note").textContent = compact(topics) + " topics";
   $("styles_note").textContent =
     STYLE_NAMES.length ? cfg.generation.styles.length + " of " + STYLE_NAMES.length : "—";
+  $("g_note").innerHTML = cfg.grounding
+    ? `grounding in <b>${cfg.grounding.dir}</b>: ~${compact(groundedDocs)} documents `
+      + `synthesized from ${cfg.grounding.chunk_words}-word chunks, each judged `
+      + `against its source chunk for faithfulness.`
+    : "upload documents and tick the box to synthesize training data grounded "
+      + "in them, instead of from seed topics alone.";
 }
 
 function msg(text, ok) {
@@ -420,12 +503,50 @@ async function loadMeta() {
       `<label for="style_${s}">${s} <small>— ${meta.styles[s]}</small></label></div>`).join("");
     document.querySelectorAll("#styles input").forEach(el => el.addEventListener("change", preview));
   }
+  if (!MODE_NAMES.length) {
+    MODE_NAMES = Object.keys(meta.grounded_modes);
+    $("g_modes").innerHTML = MODE_NAMES.map(m =>
+      `<div class="check"><input type="checkbox" id="mode_${m}" checked>` +
+      `<label for="mode_${m}">${m} <small>— ${meta.grounded_modes[m]}</small></label></div>`).join("");
+    document.querySelectorAll("#g_modes input").forEach(el => el.addEventListener("change", preview));
+  }
+  UPLOADS = meta.uploads || [];
+  const dsel = $("g_dataset");
+  const dcur = dsel.value;
+  dsel.innerHTML = '<option value="">Pick a dataset…</option>' +
+    UPLOADS.map(u => `<option>${u.name}</option>`).join("");
+  dsel.value = dcur;
+  $("uploads_note").textContent = UPLOADS.length
+    ? UPLOADS.map(u => `${u.name}: ${u.docs} docs, ${compact(u.words)} words`).join("  ·  ")
+    : "no uploads yet";
   const sel = $("cfg_load");
   const current = sel.value;
   sel.innerHTML = '<option value="">Load saved config…</option>' +
     meta.configs.map(c => `<option>${c}</option>`).join("");
   sel.value = current;
 }
+
+$("upload").onclick = async () => {
+  const files = $("up_files").files;
+  if (!files.length) return msg("pick files to upload first", false);
+  const name = $("up_name").value.trim();
+  try {
+    let docs = 0;
+    for (const file of files) {
+      const resp = await fetch(
+        `/api/upload?dataset=${encodeURIComponent(name)}&filename=${encodeURIComponent(file.name)}`,
+        { method: "POST", body: file });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error);
+      docs += data.docs;
+    }
+    msg(`uploaded ${files.length} file(s), ${docs} docs → data/uploads/${name}`, true);
+    await loadMeta();
+    $("g_enabled").checked = true;
+    $("g_dataset").value = name;
+    preview();
+  } catch (e) { msg(e.message, false); }
+};
 
 $("save").onclick = () => save().catch(e => msg(e.message, false));
 $("run").onclick = async () => {
@@ -448,6 +569,7 @@ $("cfg_load").onchange = async () => {
 };
 document.querySelectorAll("input, textarea").forEach(el => el.addEventListener("input", preview));
 $("provider").onchange = () => { syncProvider(true); preview(); };
+$("g_dataset").addEventListener("change", preview);
 
 $("domains").value = DEFAULT_DOMAINS.join("\n");
 syncProvider(false);

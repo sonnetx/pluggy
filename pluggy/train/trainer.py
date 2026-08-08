@@ -293,6 +293,20 @@ class Trainer:
         # to have init_weight as a function
         model.to(self.device)
         model.init_weights()
+        # mid-training: overwrite the fresh init with pretrained hub weights
+        # (config: model.init_from_hf = "Qwen/Qwen3-0.6B" or a local dir).
+        # runs before _parallelize/_resume on purpose: ddp broadcast sees the
+        # loaded weights, and a checkpoint resume still wins by loading after.
+        init_from = self.config["model"].get("init_from_hf")
+        if init_from:
+            from pluggy.models.hf_import import load_hf_weights, weight_files
+            if self.rank == 0:
+                weight_files(init_from)  # warm the download cache once
+            if self.world_size > 1:
+                barrier()                # other ranks read from the cache
+            n = load_hf_weights(model, init_from)
+            if self.rank == 0:
+                print(f"init_from_hf: loaded {n} tensors from {init_from}")
         # norm weights stay fp32 ON PURPOSE. they used to be cast to bf16 here
         # to kill the "bf16 input vs fp32 weight" mismatch warning, but that
         # made them bf16 *parameters*, so AdamW updated them in bf16: bf16

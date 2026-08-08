@@ -32,8 +32,12 @@ implementations as the thing to test against, not the thing to depend on.
   position, and rng state, all restorable via `resume: null | "auto" | <step>`
 - **a synthetic data pipeline** (`pluggy/synth`) — an agentic
   generate/judge/refine loop that writes jsonl shards the streaming
-  dataloader consumes directly, so the stack covers pretraining as a
-  service end to end: plan a corpus, generate it, filter it, train on it
+  dataloader consumes directly, from seed topics or grounded in uploaded
+  customer documents, so the stack covers pretraining as a service end to
+  end: upload data, synthesize a corpus, filter it, train on it
+- **mid-training** — `model.init_from_hf` loads pretrained hub qwen3
+  weights (own safetensors reader, no new deps) so a run continues
+  pretraining on a customer mix instead of starting from random init
 - **a from-scratch mesh + collectives layer** underneath all of the above —
   a named device mesh over the flat rank space (per-axis process groups,
   coordinates, virtual/flattened axes) and mesh-aware wrappers over every
@@ -109,6 +113,46 @@ topic, styles, judge thresholds, refine rounds, dedup jaccard threshold,
 shard size. the orchestration is fully testable without network
 (`tests/synth.py`) and further providers are a small adapter away.
 
+### bring your own data (grounded synthesis)
+
+alongside topic mode, the pipeline can synthesize from documents you
+provide: upload files through the frontend (or drop `{"text": ...}` jsonl
+under `data/uploads/<dataset>/`), and a `grounding` block in the config
+chunks them and generates rephrasings, textbook-style explanations, q&a
+dialogues, and summaries grounded in each chunk. the judge sees the source
+chunk too, so hallucinated specifics are scored down as unfaithful rather
+than passing as plausible. topic and grounded jobs run through the same
+judge/refine/dedup/shard machinery and can run in one config together:
+
+```json
+"grounding": {
+  "dir": "data/uploads/acme",
+  "modes": ["rephrase", "textbook", "qa", "summary"],
+  "gens_per_chunk": 2,
+  "chunk_words": 600
+}
+```
+
+## mid-training (continued pretraining)
+
+the service story is rarely from-scratch: start from pretrained weights and
+adapt them on a customer mix. `model.init_from_hf` loads a hub qwen3
+checkpoint into the model at init (the safetensors reader and the hf->pluggy
+name mapping are implemented in `pluggy/models/hf_import.py`, no safetensors
+dep), and data mixing supplies the recipe: weight the customer's synthetic
+shards against a generic replay corpus so the model learns the domain
+without forgetting, then let the wsd decay phase anneal it.
+
+```bash
+# 30% customer synthetic data, 70% climbmix replay, from Qwen3-0.6B weights
+uv run -m pluggy.train.train --config configs/qwen3_dense_midtrain.json
+```
+
+one sharp edge encoded in that config: hub checkpoints require the exact hub
+architecture, and qwen3-0.6B's ffn dim is 3072 while pluggy's rounded
+default heuristic gives 2816 -- `ffn_dim` must be set explicitly, and the
+importer fails loudly (naming the fix) if it isn't.
+
 ### frontend
 
 a minimal web ui covers every pipeline knob (domains, styles, judge
@@ -131,7 +175,8 @@ uv run tests/dataloader_packing.py --check    # packer equality + invariants
 uv run tests/checkpointer.py                  # save/load roundtrip + prefetcher exact resume
 uv run tests/scheduler.py                     # wsd + cosine shapes, resume parity
 uv run tests/synth.py                         # synth pipeline (stubbed llm, no network)
-uv run tests/synth_server.py                  # synth frontend api (localhost, no llm)
+uv run tests/synth_server.py                  # synth frontend api + uploads (localhost, no llm)
+uv run tests/hf_import.py                     # safetensors + hf weight mapping (no network)
 uv run tests/data_parallel.py --world-size 4  # ddp grad parity vs single process
 uv run tests/fsdp2.py --world-size 4          # fsdp2 parity + memory invariants
 uv run tests/grad_helper.py --world-size 2    # grad clipping vs torch reference

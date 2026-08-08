@@ -14,10 +14,13 @@ of this server (`python -m pluggy.synth.run`), so the server's environment
 needs the provider credentials to actually generate: XAI_API_KEY for grok
 (no extra install), or the [synth] extra + ANTHROPIC_API_KEY for anthropic.
 
-api (all json):
-    GET  /api/meta            styles + saved synth configs
+api (all json unless noted):
+    GET  /api/meta            styles, grounded modes, saved configs, uploads
     GET  /api/config/<name>   load a saved config
     POST /api/config          {"name": ..., "config": {...}} -> save
+    POST /api/upload?dataset=<ds>&filename=<fn>   raw file body -> normalized
+                              jsonl under data/uploads/<ds>/ (.txt/.md whole
+                              file, .jsonl rows with "text", .json list)
     POST /api/run             {"name": ...} -> start a run
     POST /api/stop            terminate the running subprocess
     GET  /api/status          running?, exit code, log tail, progress
@@ -32,11 +35,15 @@ import threading
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 from pluggy.synth.generate import STYLES
+from pluggy.synth.grounded import GROUNDED_MODES
 
 STATIC = Path(__file__).parent / "static"
 CONFIG_DIR = Path("configs")
+UPLOAD_DIR = Path("data/uploads")
+MAX_UPLOAD_BYTES = 256 * 2**20
 LOG_TAIL_CHARS = 4000
 
 # explicit allowlist rather than mapping urls onto the filesystem: the whole
@@ -67,6 +74,51 @@ def _is_synth_config(path: Path) -> bool:
         return False
 
 
+def _normalize_upload(filename: str, body: bytes) -> list[str] | str:
+    """file bytes -> list of doc texts, or an error string."""
+    suffix = Path(filename).suffix.lower()
+    try:
+        raw = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return f"{filename}: not utf-8 text (pdf and binary formats aren't supported yet)"
+    if suffix in (".txt", ".md"):
+        docs = [raw]
+    elif suffix == ".jsonl":
+        try:
+            rows = [json.loads(line) for line in raw.splitlines() if line.strip()]
+            docs = [r if isinstance(r, str) else r["text"] for r in rows]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            return f"{filename}: jsonl rows must be strings or objects with a 'text' field"
+    elif suffix == ".json":
+        try:
+            rows = json.loads(raw)
+            assert isinstance(rows, list)
+            docs = [r if isinstance(r, str) else r["text"] for r in rows]
+        except (json.JSONDecodeError, KeyError, TypeError, AssertionError):
+            return f"{filename}: json must be a list of strings or of objects with a 'text' field"
+    else:
+        return f"{filename}: unsupported extension {suffix} (use .txt, .md, .jsonl, or .json)"
+    docs = [d.strip() for d in docs if isinstance(d, str) and d.strip()]
+    if not docs:
+        return f"{filename}: no non-empty documents found"
+    return docs
+
+
+def _list_uploads() -> list[dict]:
+    out = []
+    if not UPLOAD_DIR.exists():
+        return out
+    for ds in sorted(p for p in UPLOAD_DIR.iterdir() if p.is_dir()):
+        docs = words = 0
+        for fp in ds.glob("*.jsonl"):
+            with open(fp) as f:
+                for line in f:
+                    docs += 1
+                    words += len(json.loads(line)["text"].split())
+        out.append({"name": ds.name, "docs": docs, "words": words})
+    return out
+
+
 def _validate(cfg: dict) -> str | None:
     """returns an error string or None. keep in sync with pipeline.py."""
     if cfg.get("provider") not in (None, "grok", "anthropic"):
@@ -75,9 +127,21 @@ def _validate(cfg: dict) -> str | None:
     if temp is not None and not (isinstance(temp, (int, float)) and 0 <= temp <= 2):
         return "generation.temperature must be a number in [0, 2]"
     domains = cfg.get("seed_domains")
-    if not isinstance(domains, list) or not domains or \
-            not all(isinstance(d, str) and d.strip() for d in domains):
-        return "seed_domains must be a non-empty list of strings"
+    grounding = cfg.get("grounding")
+    if not domains and not grounding:
+        return "set seed_domains (topic mode), grounding (uploaded data), or both"
+    if domains is not None and (
+            not isinstance(domains, list) or
+            not all(isinstance(d, str) and d.strip() for d in domains)):
+        return "seed_domains must be a list of strings"
+    if grounding is not None:
+        if not isinstance(grounding.get("dir"), str):
+            return "grounding.dir is required (e.g. data/uploads/<dataset>)"
+        unknown = [m for m in grounding.get("modes", []) if m not in GROUNDED_MODES]
+        if unknown:
+            return f"unknown grounded modes: {unknown}"
+        if grounding.get("chunk_words", 600) < 50:
+            return "grounding.chunk_words must be at least 50"
     if not isinstance(cfg.get("output", {}).get("dir"), str):
         return "output.dir is required"
     styles = cfg.get("generation", {}).get("styles", [])
@@ -154,7 +218,8 @@ class Handler(BaseHTTPRequestHandler):
             configs = sorted(
                 p.stem for p in CONFIG_DIR.glob("*.json") if _is_synth_config(p)
             ) if CONFIG_DIR.exists() else []
-            self._json({"styles": STYLES, "configs": configs})
+            self._json({"styles": STYLES, "grounded_modes": GROUNDED_MODES,
+                        "configs": configs, "uploads": _list_uploads()})
         elif self.path.startswith("/api/config/"):
             name = self._safe_name(self.path.removeprefix("/api/config/"))
             path = CONFIG_DIR / f"{name}.json" if name else None
@@ -180,6 +245,9 @@ class Handler(BaseHTTPRequestHandler):
             self._error("not found", 404)
 
     def do_POST(self):
+        # upload takes a raw file body, not json -- handle before _body()
+        if self.path.startswith("/api/upload"):
+            return self._upload()
         try:
             body = self._body()
         except json.JSONDecodeError:
@@ -227,6 +295,33 @@ class Handler(BaseHTTPRequestHandler):
 
         else:
             self._error("not found", 404)
+
+    def _upload(self):
+        query = parse_qs(urlparse(self.path).query)
+        dataset = self._safe_name(query.get("dataset", [""])[0])
+        if dataset is None:
+            return self._error("dataset must be [A-Za-z0-9_-]+")
+        filename = Path(query.get("filename", [""])[0]).name  # strip any path
+        if not filename:
+            return self._error("filename query param is required")
+        length = int(self.headers.get("Content-Length", 0))
+        if length <= 0:
+            return self._error("empty upload")
+        if length > MAX_UPLOAD_BYTES:
+            return self._error(f"upload over {MAX_UPLOAD_BYTES >> 20} MiB", 413)
+        docs = _normalize_upload(filename, self.rfile.read(length))
+        if isinstance(docs, str):
+            return self._error(docs)
+        out_dir = UPLOAD_DIR / dataset
+        out_dir.mkdir(parents=True, exist_ok=True)
+        stem = re.sub(r"[^A-Za-z0-9_\-]", "_", Path(filename).stem) or "upload"
+        path = out_dir / f"{stem}.jsonl"
+        with open(path, "w") as f:
+            for doc in docs:
+                f.write(json.dumps({"text": doc}, ensure_ascii=False) + "\n")
+        self._json({"saved": str(path), "docs": len(docs),
+                    "words": sum(len(d.split()) for d in docs),
+                    "grounding_dir": str(out_dir)})
 
 
 def main():
