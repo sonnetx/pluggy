@@ -374,15 +374,30 @@ pre.log {
   border-radius: 0 0 var(--r) var(--r);
 }
 
-/* empty-state plot: faint gridlines behind a centered message */
+/* two charts side by side (loss, throughput); they stack on narrow viewports
+   rather than squeezing into unreadable slivers */
+.plots { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 900px) { .plots { grid-template-columns: 1fr; } }
+.plot-title {
+  font-size: 12px; font-family: var(--mono); color: var(--ink-3);
+  margin-bottom: 7px;
+}
+
+/* empty-state plot: faint horizontal rules behind a centered message.
+   no vertical rules -- steps are continuous, so columns imply buckets that
+   aren't there, and once a run streams in, the svg draws its own value
+   gridlines at the axis labels (see .plot.live). */
 .plot {
   height: 216px; border-radius: 7px; border: 1px solid var(--rule-soft);
   display: flex; align-items: center; justify-content: center;
   font-size: 13px; color: var(--ink-3); text-align: center;
-  background-image: linear-gradient(to right, var(--rule-soft) 1px, transparent 1px),
-                    linear-gradient(to bottom, var(--rule-soft) 1px, transparent 1px);
-  background-size: 11.11% 25%;
+  background-image: linear-gradient(to bottom, var(--rule-soft) 1px, transparent 1px);
+  background-size: 100% 25%;
 }
+/* the chart's own gridlines are tied to the loss axis; the css ones would sit
+   at different heights and read as a second, wrong grid. no padding here --
+   the svg is drawn at clientWidth/clientHeight, which would include it. */
+.plot.live { background-image: none; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }

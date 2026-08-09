@@ -170,12 +170,23 @@ class Trainer:
         """
         self.wandb_run = None
         wandb_cfg = self.config.get("wandb", {})
-        if not wandb_cfg.get("enabled", False) or self.rank != 0 or self.benchmark:
+        if not wandb_cfg.get("enabled", False) or self.benchmark:
             return
+        # asserted on EVERY rank, before the rank-0 gate below. it used to sit
+        # after it, which made a missing wandb a silent hang instead of an
+        # error: rank 0 raised, the exception unwound into train.py's
+        # `finally: destroy_process_group()`, and that waits for ranks already
+        # blocked in the first grad all-reduce -- deadlock. worse, cpython
+        # prints a traceback only after the finally block returns, so nothing
+        # was ever printed; the run just sat there with rank 0's gpu wedged.
+        # any rank-0-only failure in this constructor has that shape, so
+        # checks that every rank can make belong on every rank.
         assert HAS_WANDB, (
             "wandb.enabled is true in the config but wandb isn't installed: "
             "uv sync --extra wandb"
         )
+        if self.rank != 0:
+            return
 
         # the full config doubles as the run's searchable hyperparameters, so
         # two runs can be diffed in the ui instead of by digging up the json

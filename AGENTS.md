@@ -2,6 +2,13 @@
 
 ## writing a custom model architecture
 
+**this file is the prompt.** `pluggy/synth/write_model.py` sends this section
+verbatim, with the closest reference implementation, when grok writes a new
+architecture (`uv run -m pluggy.synth.write_model --name X --description
+"..."`, or the /train page's Custom Model box). so a rule that lives only in
+someone's head doesn't reach the generator — write it down here, and both
+humans and grok get it.
+
 **where it goes:** `pluggy/models/<name>/<name>.py` (own subdirectory per
 arch, mirrors `pluggy/models/qwen3/qwen3.py` and the
 `pluggy/models/llama3/llama3.py` stub). one file, self-contained — no shared

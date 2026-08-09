@@ -32,12 +32,16 @@ api (all json unless noted):
     POST /api/stop            terminate the running subprocess
     GET  /api/status          running?, exit code, log tail, progress
 
-    GET  /api/train/meta          saved train configs, local gpus
+    GET  /api/train/meta          saved train configs, local gpus, registry keys
     GET  /api/train/config/<name> load a saved train config
     POST /api/train/config        {"name": ..., "config": {...}} -> save
     POST /api/train/run           {"name": ..., "steps": null|N} -> torchrun
     POST /api/train/stop          signal the whole torchrun process group
     GET  /api/train/status        running?, exit code, log tail, step metrics
+
+    POST /api/model/write         {"name": ..., "description": ..., "kernels": bool}
+                                  -> grok writes a new architecture (needs XAI_API_KEY)
+    GET  /api/model/status        running?, exit code, log tail, registered result
 """
 
 import argparse
@@ -88,11 +92,18 @@ _run = {"proc": None, "config": None, "log": None}
 _train_lock = threading.Lock()
 _train = {"proc": None, "config": None, "log": None, "steps": None}
 
+# grok writing a new architecture: minutes of api call plus a validation run,
+# so it gets the same subprocess + poll treatment as the other two
+_write_lock = threading.Lock()
+_write = {"proc": None, "log": None, "name": None}
+
 # what the trainer prints per step (pluggy/train/trainer.py):
 #   step=0 || loss=11.2340 || gnorm=1.234 || lr=3.00e-04 || tps=54321
 STEP_RE = re.compile(
     r"step=(\d+) \|\| loss=(\S+) \|\| gnorm=(\S+) \|\| lr=(\S+) \|\| tps=(\S+)"
 )
+# write_model.py's last line on success
+RESULT_RE = re.compile(r"^RESULT (\{.*\})$", re.M)
 MAX_METRIC_POINTS = 400
 MAX_LOG_SCAN_BYTES = 4 * 2**20
 
@@ -112,6 +123,28 @@ def _is_train_config(path: Path) -> bool:
         return isinstance(cfg, dict) and "model" in cfg and "optimizer" in cfg
     except (json.JSONDecodeError, OSError):
         return False
+
+
+def _registered_models() -> list[str]:
+    """
+    MODEL_REGISTRY's keys, read out of the source rather than imported: this
+    runs on every page load and importing pluggy.models drags in torch. the
+    registry is a dict literal of string keys, so a regex is honest here --
+    and _validate_train does the real import before anything launches.
+    """
+    try:
+        text = (Path(__file__).resolve().parents[1] / "models" / "builder.py").read_text()
+    except OSError:
+        return []
+    block = re.search(r"MODEL_REGISTRY\s*=\s*\{(.*?)\n\}", text, re.S)
+    return re.findall(r'"([^"]+)"\s*:', block.group(1)) if block else []
+
+
+def _has_wandb() -> bool:
+    """is wandb importable -- find_spec, so nothing actually gets imported."""
+    import importlib.util
+
+    return importlib.util.find_spec("wandb") is not None
 
 
 def _gpus() -> list[str]:
@@ -299,6 +332,13 @@ def _validate_train(cfg: dict) -> str | None:
     if parallelism not in ("ddp", "fsdp2"):
         return f"unknown parallelism {parallelism!r}: expected 'ddp' or 'fsdp2'"
 
+    # wandb.init runs on rank 0 alone, so a missing wandb takes out that rank
+    # while the others sit in the first all-reduce -- see the note in
+    # trainer._setup_wandb. cheap to catch here, expensive to debug there.
+    if cfg.get("wandb", {}).get("enabled") and not _has_wandb():
+        return ("wandb.enabled is true but wandb isn't installed: run "
+                "`uv sync --extra wandb`, or untick 'Log to wandb'")
+
     data = cfg["data"]
     for key in ("tokenizer", "eos_token", "pad_token", "seq_len",
                 "global_batch_size", "micro_batch_size"):
@@ -429,7 +469,8 @@ class Handler(BaseHTTPRequestHandler):
                 p.stem for p in CONFIG_DIR.glob("*.json") if _is_train_config(p)
             ) if CONFIG_DIR.exists() else []
             gpus = _gpus()
-            self._json({"configs": configs, "gpus": gpus, "gpu_count": len(gpus)})
+            self._json({"configs": configs, "gpus": gpus, "gpu_count": len(gpus),
+                        "models": _registered_models(), "wandb": _has_wandb()})
         elif self.path.startswith("/api/train/config/"):
             name = self._safe_name(self.path.removeprefix("/api/train/config/"))
             path = CONFIG_DIR / f"{name}.json" if name else None
@@ -458,6 +499,29 @@ class Handler(BaseHTTPRequestHandler):
             if log is not None and log.exists():
                 status["log_tail"] = log.read_text(errors="replace")[-LOG_TAIL_CHARS:]
                 status["metrics"] = _train_metrics(log)
+            self._json(status)
+        elif self.path == "/api/model/status":
+            with _write_lock:
+                proc, log, name = _write["proc"], _write["log"], _write["name"]
+            status = {"running": False, "exit_code": None, "log_tail": "",
+                      "name": name, "result": None}
+            if proc is not None:
+                code = proc.poll()
+                status["running"] = code is None
+                status["exit_code"] = code
+            if log is not None and log.exists():
+                text = log.read_text(errors="replace")
+                status["log_tail"] = text[-LOG_TAIL_CHARS:]
+                # the phase lines are the progress bar: no percentage exists
+                # for "grok is thinking", so the ui shows the last one
+                lines = [l for l in text.splitlines() if l.strip()]
+                status["phase"] = lines[-1][:200] if lines else ""
+                found = RESULT_RE.search(text)
+                if found:
+                    try:
+                        status["result"] = json.loads(found.group(1))
+                    except json.JSONDecodeError:
+                        pass
             self._json(status)
         else:
             self._error("not found", 404)
@@ -527,6 +591,9 @@ class Handler(BaseHTTPRequestHandler):
 
         elif self.path == "/api/train/run":
             return self._train_run(body)
+
+        elif self.path == "/api/model/write":
+            return self._model_write(body)
 
         elif self.path == "/api/train/stop":
             with _train_lock:
@@ -600,6 +667,42 @@ class Handler(BaseHTTPRequestHandler):
             _train["config"], _train["log"], _train["steps"] = path, log, steps
         self._json({"started": str(path), "log": str(log), "nproc": nproc,
                     "steps": steps, "cmd": " ".join(cmd)})
+
+    def _model_write(self, body: dict):
+        name = self._safe_name(body.get("name", ""))
+        # the name becomes a python module name, so "-" is out even though
+        # config names allow it
+        if name is None or not re.fullmatch(r"[A-Za-z0-9_]+", name):
+            return self._error("name must be [A-Za-z0-9_]+ (it becomes a module name)")
+        description = (body.get("description") or "").strip()
+        if len(description) < 20:
+            return self._error(
+                "describe the architecture you want in a sentence or two -- "
+                "layers, dims, attention shape, anything unusual about it")
+        if "XAI_API_KEY" not in os.environ:
+            return self._error(
+                "XAI_API_KEY is not set in the environment this server was "
+                "started from (the grok provider needs it)", 409)
+        model_dir = Path("pluggy/models") / name
+        if model_dir.exists() and not body.get("overwrite"):
+            return self._error(f"{model_dir} already exists; pick another name", 409)
+
+        with _write_lock:
+            if _write["proc"] is not None and _write["proc"].poll() is None:
+                return self._error("already writing a model", 409)
+            log = Path(f"write_model_{name}.log")
+            cmd = [sys.executable, "-m", "pluggy.synth.write_model",
+                   "--name", name, "--description", description]
+            if not body.get("kernels", True):
+                cmd.append("--no-kernels")
+            logf = open(log, "w")
+            _write["proc"] = subprocess.Popen(
+                cmd, stdout=logf, stderr=subprocess.STDOUT,
+                env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            )
+            logf.close()
+            _write["log"], _write["name"] = log, name
+        self._json({"started": name, "log": str(log)})
 
     def _upload(self):
         query = parse_qs(urlparse(self.path).query)

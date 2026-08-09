@@ -111,8 +111,24 @@
 
               <div id="custom_model_area" style="display:none">
                 <label for="custom_model_desc">Describe the model you want</label>
-                <textarea id="custom_model_desc" rows="6" style="width:100%; font-family:var(--mono); padding:10px; border-radius:7px; border:1px solid var(--rule); resize:vertical;" placeholder="Example: A 1.5B parameter dense model with 24 layers, 2048 hidden size, SwiGLU FFN, GQA with 8 KV heads..."></textarea>
-                <small style="color:var(--ink-3)">This description will be used to generate a new custom model architecture.</small>
+                <textarea id="custom_model_desc" rows="6" placeholder="Example: A 1.5B parameter dense model with 24 layers, 2048 hidden size, SwiGLU FFN, GQA with 8 KV heads..."></textarea>
+                <div class="row" style="margin-top:10px">
+                  <div class="field">
+                    <label for="custom_model_name">Name <span class="hint">— module + registry key</span></label>
+                    <input type="text" id="custom_model_name" placeholder="my_arch">
+                  </div>
+                  <div class="field" style="align-self:end">
+                    <div class="check">
+                      <input type="checkbox" id="custom_model_kernels" checked>
+                      <label for="custom_model_kernels">Write fused kernels too</label>
+                    </div>
+                  </div>
+                  <div class="field" style="align-self:end; flex:none">
+                    <button type="button" id="custom_model_submit" class="primary">Write it</button>
+                  </div>
+                </div>
+                <!-- .cmd keeps whitespace, so this line stays a single line -->
+                <div class="cmd" id="custom_model_status" style="margin-top:12px">grok reads AGENTS.md and the reference implementations, writes the architecture and any kernels worth fusing, then runs it once before registering it. two or three minutes.</div>
               </div>
             </div>
           </div>
@@ -221,8 +237,23 @@
 
               <div id="custom_model_area_expert" style="display:none; margin-top:12px">
                 <label for="custom_model_desc_expert">Describe the model you want</label>
-                <textarea id="custom_model_desc_expert" rows="6" style="width:100%; font-family:var(--mono); padding:10px; border-radius:7px; border:1px solid var(--rule); resize:vertical;" placeholder="Example: A 1.5B parameter dense model with 24 layers, 2048 hidden size, SwiGLU FFN, GQA with 8 KV heads..."></textarea>
-                <small style="color:var(--ink-3)">This description will be used to generate a new custom model architecture.</small>
+                <textarea id="custom_model_desc_expert" rows="6" placeholder="Example: A 1.5B parameter dense model with 24 layers, 2048 hidden size, SwiGLU FFN, GQA with 8 KV heads..."></textarea>
+                <div class="row" style="margin-top:10px">
+                  <div class="field">
+                    <label for="custom_model_name_expert">Name <span class="hint">— module + registry key</span></label>
+                    <input type="text" id="custom_model_name_expert" placeholder="my_arch">
+                  </div>
+                  <div class="field" style="align-self:end">
+                    <div class="check">
+                      <input type="checkbox" id="custom_model_kernels_expert" checked>
+                      <label for="custom_model_kernels_expert">Write fused kernels too</label>
+                    </div>
+                  </div>
+                  <div class="field" style="align-self:end; flex:none">
+                    <button type="button" id="custom_model_submit_expert" class="primary">Write it</button>
+                  </div>
+                </div>
+                <div class="cmd" id="custom_model_status_expert" style="margin-top:12px">grok reads AGENTS.md and the reference implementations, writes the architecture and any kernels worth fusing, then runs it once before registering it. two or three minutes.</div>
               </div>
               <div class="row">
                 <div class="field">
@@ -499,8 +530,10 @@
                 </div>
               </div>
               <div class="check">
-                <input type="checkbox" id="r_wandb" checked>
-                <label for="r_wandb">Log to wandb <small>— rank 0 only</small></label>
+                <!-- off by default: loss and tps are already streamed to the
+                     Monitor card, so wandb is opt-in for keeping a run history -->
+                <input type="checkbox" id="r_wandb">
+                <label for="r_wandb">Log to wandb <small id="r_wandb_note">— rank 0 only</small></label>
               </div>
             </div>
           </div>
@@ -526,16 +559,24 @@
       <!-- ==================== shared monitor ==================== -->
       <div class="cards" style="margin-top:16px">
         <div class="card wide" data-section="Monitor">
-          <div class="card-head"><h2>Loss by step</h2>
+          <div class="card-head"><h2>Metrics by step</h2>
             <div class="right">
               <span class="status"><span class="dot" id="dot"></span><span id="statline">idle</span></span>
               <button id="stop" disabled>Stop</button>
             </div>
           </div>
           <div class="card-body">
-            <div class="plot" id="plot">No metrics yet — launch a run to stream loss, lr and tps here.</div>
+            <div class="plots">
+              <div>
+                <div class="plot-title">Loss</div>
+                <div class="plot" id="plot_loss">No metrics yet — launch a run to stream them here.</div>
+              </div>
+              <div>
+                <div class="plot-title">Tokens / second</div>
+                <div class="plot" id="plot_tps">Throughput appears once the first steps land.</div>
+              </div>
+            </div>
           </div>
-          <pre class="log" id="log">No run yet.</pre>
         </div>
       </div>
 
@@ -968,10 +1009,17 @@ function initPickers() {
       managed();
     });
 
-  // expert's arch select is driven by the same catalogue + custom option
+  renderArchSelect();
+}
+
+/* expert's arch select is driven by the same catalogue + the custom option;
+   rebuilt whenever the catalogue grows, keeping the current selection */
+function renderArchSelect() {
+  const current = $("m_name").value;
   $("m_name").innerHTML = ARCHS.map(a =>
     `<option value="${a.id}">${a.name}</option>`).join("") +
     `<option value="custom">Custom Model (describe below)</option>`;
+  if (current) $("m_name").value = current;
 }
 
 /* ---------- managed estimate ---------- */
@@ -1393,13 +1441,125 @@ async function launch(steps) {
   const name = await saveConfig();
   const started = await api("/api/train/run", { name, steps: steps || null });
   const what = steps ? `benchmark (${steps} steps)` : "run";
-  msg(`${what} started on ${started.nproc} gpu(s) → ${started.log}`, true);
+  msg(`${what} started on ${started.nproc} gpu(s)`, true);
   poll().catch(() => {});
+}
+
+/* ---------- custom architectures ----------
+ * "Custom Model" is a description, not a config: grok turns it into a real
+ * file under pluggy/models/ (plus any kernels worth fusing), validates it by
+ * running it, and registers it. only then can it be trained, so on success we
+ * fold it into the catalogue and hand the form over to it.
+ */
+const customIds = suffix => ({
+  desc: "custom_model_desc" + suffix,
+  name: "custom_model_name" + suffix,
+  kernels: "custom_model_kernels" + suffix,
+  submit: "custom_model_submit" + suffix,
+  status: "custom_model_status" + suffix,
+});
+
+async function writeCustomModel(suffix) {
+  const ids = customIds(suffix);
+  const name = $(ids.name).value.trim();
+  const description = $(ids.desc).value.trim();
+  const status = t => { $(ids.status).textContent = t; };
+
+  $(ids.submit).disabled = true;
+  try {
+    await api("/api/model/write", {
+      name, description, kernels: $(ids.kernels).checked,
+    });
+    status(`writing ${name}…`);
+    // no percentage exists for "grok is thinking", so mirror the phase line
+    // the writer logs (prompting / writing / validating / repairing)
+    const result = await new Promise((resolve, reject) => {
+      const timer = setInterval(async () => {
+        let s;
+        try { s = await api("/api/model/status"); } catch (e) { return; }
+        if (s.phase) status(`${name}: ${s.phase}`);
+        if (s.running) return;
+        clearInterval(timer);
+        if (s.result) resolve(s.result);
+        else reject(new Error(lastRealLine(s.log_tail) || "writing the model failed"));
+      }, 2000);
+    });
+    adoptCustomModel(result);
+    status(`${result.registry_key} registered from ${result.model_file}`
+         + (result.kernels.length ? ` · kernels: ${result.kernels.join(", ")}` : "")
+         + ` — ${result.summary}`);
+    msg(`${result.registry_key} is ready to train`, true);
+  } catch (e) {
+    status("failed — " + e.message);
+    msg(e.message, false);
+  } finally {
+    $(ids.submit).disabled = false;
+  }
+}
+
+const lastRealLine = tail => ((tail || "").trim().split("\n").pop() || "").slice(0, 200);
+
+/* a freshly written arch joins the catalogue as a one-size entry, so the rest
+   of the page (param maths, launch command, config json) treats it like any
+   other registered model */
+function adoptCustomModel(result) {
+  const c = result.config || {};
+  const size = {
+    id: result.registry_key + "-1", name: "as written", origin: "grok",
+    layers: c.num_layers || 24, heads: c.num_heads || 16,
+    kv: c.num_kv_heads || c.num_heads || 16, hd: c.head_dim || 128,
+    emb: c.emb_dim || 2048, ffn: c.ffn_dim || "",
+  };
+  const arch = {
+    id: result.registry_key, name: result.registry_key, tied: true,
+    vocab: c.vocab_size || 151936,
+    // tokenizer is a data-side choice, not an architecture one; qwen3's is the
+    // page default and the Data card can change it
+    tokenizer: "Qwen/Qwen3-0.6B", eos: "<|endoftext|>", pad: "<|fim_pad|>",
+    written: true, sizes: [size],
+  };
+  const existing = ARCHS.findIndex(a => a.id === arch.id);
+  if (existing >= 0) ARCHS[existing] = arch;
+  else ARCHS.push(arch);
+
+  picked.arch = arch;
+  picked.size = size;
+  renderArchSelect();
+  $("m_name").value = arch.id;
+  openInExpert();
+  // after openInExpert, which clears what an earlier loaded config carried:
+  // whatever grok chose for the kwargs is what has to be sent, and some of it
+  // (moe fields, rope base, layer_types) has no widget on this form
+  carried.model = Object.fromEntries(
+    Object.entries(c).filter(([k]) => !FORM_MODEL_KEYS.includes(k)));
+  refresh();
 }
 
 async function loadTrainMeta() {
   const meta = await api("/api/train/meta");
   GPUS_LOCAL = meta.gpus || [];
+  // wandb is opt-in (the Monitor card already has loss and tps); if it isn't
+  // installed, say so rather than letting the box be ticked into a run that
+  // dies on rank 0 alone
+  if (meta.wandb === false) {
+    $("r_wandb").checked = false;
+    $("r_wandb").disabled = true;
+    $("r_wandb_note").textContent = "— not installed: uv sync --extra wandb";
+  }
+  // an architecture written in an earlier session is in MODEL_REGISTRY but not
+  // in this page's catalogue; list it so it stays selectable across reloads.
+  // its real dims live in whatever config was saved for it -- these are the
+  // page defaults until one is loaded.
+  (meta.models || []).forEach(key => {
+    if (ARCHS.some(a => a.id === key)) return;
+    ARCHS.push({
+      id: key, name: key, tied: true, written: true, vocab: 151936,
+      tokenizer: "Qwen/Qwen3-0.6B", eos: "<|endoftext|>", pad: "<|fim_pad|>",
+      sizes: [{ id: key + "-1", name: "as written", origin: "grok", layers: 24,
+                heads: 16, kv: 8, hd: 128, emb: 2048, ffn: "" }],
+    });
+  });
+  renderArchSelect();
   $("launch").title = GPUS_LOCAL.length
     ? `torchrun over ${GPUS_LOCAL.length} local gpu(s)` : "no local gpus visible";
   const sel = $("cfg_load"), current = sel.value;
@@ -1415,41 +1575,87 @@ function localGpuNote() {
   return `launches here run on this machine: ${GPUS_LOCAL.length}× ${kinds.join(" + ")}`;
 }
 
-/* ---------- monitor ---------- */
-function drawPlot(metrics) {
-  const host = $("plot");
-  if (!metrics.length) {
+/* ---------- monitor ----------
+ * two charts off one series of step metrics: loss, and throughput. both are
+ * drawn from the same renderer -- they differ only in which field they read
+ * and how the axis labels are formatted.
+ */
+// charts are drawn at the element's pixel size, so a window resize has to
+// redraw them rather than stretch them; the poll would otherwise only catch up
+// every 2s (and never, once a run has finished)
+let lastMetrics = [];
+window.addEventListener("resize", () => drawPlots(lastMetrics));
+
+function drawPlots(metrics) {
+  lastMetrics = metrics;
+  // the axis labels take their precision from the tick spacing, so 0.02-spaced
+  // loss labels read 2.90 / 2.92 rather than 2.9 / 2.9
+  drawChart($("plot_loss"), metrics, p => p.loss, (v, decimals) => v.toFixed(decimals),
+            "No metrics yet — launch a run to stream them here.");
+  // step 0 carries the torch.compile warmup (~900 tok/s against ~200k after),
+  // and plotting it flattens every real point onto the baseline
+  // compact() below 1k would print "1" for 0.95, 1.00 and 1.05 alike
+  drawChart($("plot_tps"), metrics.length > 1 ? metrics.slice(1) : metrics, p => p.tps,
+            (v, decimals) => (Math.abs(v) >= 1000 ? compact(v) : v.toFixed(decimals)),
+            "Throughput appears once the first steps land.");
+}
+
+function drawChart(host, points, valueOf, format, emptyText) {
+  if (!points.length) {
     if (host.dataset.state !== "empty") {
-      host.textContent = "No metrics yet — launch a run to stream loss, lr and tps here.";
+      host.textContent = emptyText;
       host.dataset.state = "empty";
+      host.classList.remove("live");
     }
     return;
   }
   host.dataset.state = "data";
-  const W = 1000, H = 300, L = 58, R = 14, T = 16, B = 30;
-  const steps = metrics.map(p => p.step);
-  const losses = metrics.map(p => p.loss);
+  host.classList.add("live");
+  // draw at the element's own pixel size rather than a fixed viewBox: a fixed
+  // one gets letterboxed inside a wider, shorter card (dead space down both
+  // sides) and scales the type with it. 1:1 keeps the chart full-bleed and the
+  // labels at their real size.
+  const W = Math.round(host.clientWidth) || 440;
+  const H = Math.round(host.clientHeight) || 216;
+  const L = 46, R = 12, T = 12, B = 22;
+  const steps = points.map(p => p.step);
+  const values = points.map(valueOf);
   const x0 = Math.min(...steps), x1 = Math.max(Math.max(...steps), x0 + 1);
-  let y0 = Math.min(...losses), y1 = Math.max(...losses);
-  const span = (y1 - y0) || Math.max(0.1, y1 * 0.1);
-  y0 -= span * 0.1; y1 += span * 0.1;
+  const lo = Math.min(...values), hi = Math.max(...values);
+  // the axis follows the data (a loss curve flattening at 2.9 should fill the
+  // card, not sit squashed against a 0 baseline); the gridlines are then laid
+  // on round values INSIDE that range, so the labels read 4 / 6 / 8 instead of
+  // whatever the min and max happened to be
+  const pad = (hi - lo) * 0.08 || Math.max(0.05, Math.abs(hi) * 0.05);
+  const y0 = lo - pad, y1 = hi + pad;
+  // pick the round step that lands nearest four gridlines, rather than the
+  // first one at least that big: a span of 8.9 wants a step of 2 (four lines),
+  // and rounding up would jump it to 5 (two)
+  const mag = 10 ** Math.floor(Math.log10((y1 - y0) / 4));
+  const tick = [0.5, 1, 2, 5, 10]
+    .map(m => m * mag)
+    .reduce((best, t) =>
+      Math.abs((y1 - y0) / t - 4) < Math.abs((y1 - y0) / best - 4) ? t : best);
+  const decimals = Math.max(0, -Math.floor(Math.log10(tick)));
+
   const px = s => L + (W - L - R) * (s - x0) / (x1 - x0);
   const py = v => T + (H - T - B) * (1 - (v - y0) / (y1 - y0));
-  const line = metrics.map(p => `${px(p.step).toFixed(1)},${py(p.loss).toFixed(1)}`).join(" ");
-  const grid = [0, 0.25, 0.5, 0.75, 1].map(f => {
-    const v = y1 - (y1 - y0) * f, y = py(v).toFixed(1);
-    return `<line x1="${L}" y1="${y}" x2="${W - R}" y2="${y}" stroke="var(--rule-soft)"/>`
-         + `<text x="${L - 8}" y="${+y + 4}" text-anchor="end" font-size="13"`
-         + ` fill="var(--ink-3)">${v.toFixed(2)}</text>`;
-  }).join("");
+  const line = points.map(p => `${px(p.step).toFixed(1)},${py(valueOf(p)).toFixed(1)}`).join(" ");
+
+  let grid = "";
+  for (let v = Math.ceil(y0 / tick) * tick; v <= y1; v += tick) {
+    const y = py(v).toFixed(1);
+    grid += `<line x1="${L}" y1="${y}" x2="${W - R}" y2="${y}" stroke="var(--rule-soft)"/>`
+          + `<text x="${L - 8}" y="${+y + 4}" text-anchor="end">${format(v, decimals)}</text>`;
+  }
   host.innerHTML =
-    `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:100%"
-       font-family="var(--mono)">${grid}
-       <polyline points="${line}" fill="none" stroke="var(--ink)" stroke-width="2"
+    `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"
+       font-family="var(--mono)" font-size="11" fill="var(--ink-3)">
+       ${grid}
+       <polyline points="${line}" fill="none" stroke="var(--ink)" stroke-width="1.5"
          stroke-linejoin="round" stroke-linecap="round"/>
-       <text x="${L}" y="${H - 8}" font-size="13" fill="var(--ink-3)">step ${x0}</text>
-       <text x="${W - R}" y="${H - 8}" font-size="13" fill="var(--ink-3)"
-         text-anchor="end">step ${x1}</text>
+       <text x="${L}" y="${H - 6}">step ${x0}</text>
+       <text x="${W - R}" y="${H - 6}" text-anchor="end">step ${x1}</text>
      </svg>`;
 }
 
@@ -1471,16 +1677,16 @@ async function poll() {
   } else if (s.running) {
     bits.push("building model + tokenizing");
   }
+  // a run that died leaves nothing on the page to read (no log pane), so name
+  // the file that has the traceback -- the name only, never its contents
+  if (!s.running && s.exit_code) bits.push(logName(s.config));
   $("statline").textContent = bits.join("  ·  ");
 
-  if (s.log_tail) {
-    const log = $("log");
-    const pinned = log.scrollTop + log.clientHeight >= log.scrollHeight - 8;
-    log.textContent = s.log_tail;
-    if (pinned) log.scrollTop = log.scrollHeight;
-  }
-  drawPlot(s.metrics || []);
+  drawPlots(s.metrics || []);
 }
+
+const logName = configPath =>
+  "train_run_" + String(configPath || "").split("/").pop().replace(/\.json$/, "") + ".log";
 
 /* ---------- loading a saved config ---------- */
 function setSeg(id, val) {
@@ -1628,7 +1834,9 @@ $("launch").onclick = () => launch(null).catch(fail);
 // checkpoints, and the only way fsdp2 may run today
 $("bench").onclick = () => launch(20).catch(fail);
 $("stop").onclick = () =>
-  api("/api/train/stop", {}).then(() => msg("stop requested", true)).catch(fail);
+  api("/api/train/stop", {})
+    .then(() => msg("stop requested", true))
+    .catch(fail);
 $("cfg_load").onchange = async () => {
   const name = $("cfg_load").value;
   if (!name) return;
@@ -1637,6 +1845,8 @@ $("cfg_load").onchange = async () => {
   } catch (e) { fail(e); }
 };
 $("to_expert").onclick = openInExpert;
+$("custom_model_submit").onclick = () => writeCustomModel("");
+$("custom_model_submit_expert").onclick = () => writeCustomModel("_expert");
 
 $("pick_x").onclick = () => $("pick_modal").close();
 // click on the backdrop (i.e. outside the panel) dismisses too

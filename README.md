@@ -177,6 +177,25 @@ config blocks are validated against the constructors they are unpacked into
 before anything launches, so a typo'd key is a message in the ui rather than a
 `TypeError` a minute into the run.
 
+picking **Custom Model** on that page turns a description into a real
+architecture: grok gets `AGENTS.md` (the contract), the closest reference
+implementation, and the kernel house style, and writes
+`pluggy/models/<name>/<name>.py` plus any fused kernels worth having. it is
+the same thing as
+
+```bash
+export XAI_API_KEY=...      # the server needs it in its own environment
+uv run -m pluggy.synth.write_model --name <name> --description "..."
+```
+
+the generated file has to construct, init and run one forward through its own
+`__main__` scaffold before it is added to `MODEL_REGISTRY` -- a failing draft
+gets the traceback handed back for a bounded number of repair rounds, and one
+that never passes is left on disk **unregistered**, since `builder.py` is on
+every training run's import path. on success the page adopts the new
+architecture (fields filled from the kwargs grok chose) and it can be
+launched straight away.
+
 ## tests
 
 no gpus needed for any of these except the last (gloo/cpu, `mp.spawn`):

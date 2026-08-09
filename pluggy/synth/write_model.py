@@ -1,0 +1,379 @@
+"""
+grok writes a new model architecture (and any kernels it wants) into the tree.
+
+    uv run -m pluggy.synth.write_model --name rwkv7 --description "..."
+    uv run -m pluggy.synth.write_model --name x --description "..." --no-kernels
+
+this is the /train page's "Custom Model" box as a command: the frontend server
+runs exactly this, which is why the interesting logic lives here rather than in
+the http handler -- a run started from the ui and one started from a shell do
+the same thing and leave the same trail.
+
+what it does, in order:
+
+    1. prompt grok with AGENTS.md (the contract), the closest reference
+       implementation, and the kernel house style
+    2. write pluggy/models/<name>/<name>.py plus any kernels it asked for
+    3. run the file's own __main__ scaffold -- AGENTS.md's only
+       pre-integration check: does the thing construct, and is init sane
+    4. on failure, hand the traceback back for a repair round (bounded)
+    5. ONLY once it constructs, register it in MODEL_REGISTRY
+
+step 5 is last on purpose. builder.py is imported by the trainer, so a model
+file that raises on import would take out every training run in the repo, not
+just this one -- an unvalidated architecture stays unregistered, and the file
+is left on disk to look at. the same reasoning covers kernels/__init__.py:
+both files are snapshotted before editing and restored if validation fails.
+
+needs XAI_API_KEY (the grok path is stdlib-only -- no sdk install).
+"""
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+
+from pathlib import Path
+
+from pluggy.synth.grok import GrokClient
+
+ROOT = Path(__file__).resolve().parents[2]
+MODELS = ROOT / "pluggy" / "models"
+KERNELS = ROOT / "pluggy" / "kernels"
+BUILDER = MODELS / "builder.py"
+KERNEL_INIT = KERNELS / "__init__.py"
+DEFAULT_MODEL = "grok-4"
+
+# the reference implementation is picked by what the description asks for:
+# a moe request that only sees the dense file reinvents routing badly, and a
+# dense request that sees every file spends its context on irrelevant code
+REFERENCES = [
+    (("moe", "mixture of experts", "expert", "router", "sparse"),
+     "pluggy/models/qwen3_moe/qwen3_moe.py"),
+    (("sliding", "hybrid", "local attention", "softcap", "geglu", "per-layer"),
+     "pluggy/models/gemma4/gemma4.py"),
+]
+BASE_REFERENCE = "pluggy/models/qwen3/qwen3.py"
+
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "registry_key": {
+            "type": "string",
+            "description": "config-facing name for MODEL_REGISTRY, [a-z0-9_]+",
+        },
+        "class_name": {"type": "string", "description": "the nn.Module subclass name"},
+        "model_code": {
+            "type": "string",
+            "description": "the complete contents of pluggy/models/<name>/<name>.py",
+        },
+        "kernels": {
+            "type": "array",
+            "description": "extra files for pluggy/kernels/, empty if none are worth it",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "e.g. fused_qkv.py"},
+                    "export": {
+                        "type": "string",
+                        "description": "the one public function name to re-export",
+                    },
+                    "code": {"type": "string"},
+                    "why": {
+                        "type": "string",
+                        "description": "what it fuses and roughly what it should buy",
+                    },
+                },
+                "required": ["filename", "export", "code", "why"],
+                "additionalProperties": False,
+            },
+        },
+        "config_json": {
+            "type": "string",
+            "description": "json object: the training config's model.config block, "
+                           "i.e. exactly the __init__ kwargs, at a ~1B size",
+        },
+        "summary": {
+            "type": "string",
+            "description": "two or three sentences: what this architecture is and "
+                           "what it does differently from the reference",
+        },
+    },
+    "required": ["registry_key", "class_name", "model_code", "kernels",
+                 "config_json", "summary"],
+    "additionalProperties": False,
+}
+
+SYSTEM = (
+    "You write pytorch model architectures for pluggy, a from-scratch LLM "
+    "training repo. You are given the repo's own contract (AGENTS.md) and its "
+    "reference implementations. Follow that contract exactly -- it is not "
+    "advisory: the trainer, the fused-CE objective and the parallelism layer "
+    "all reach into the model by attribute name, and a deviation surfaces as a "
+    "wrong loss curve rather than an error. Return complete files, never "
+    "diffs, snippets or ellipses."
+)
+
+
+def log(msg: str) -> None:
+    print(msg, flush=True)
+
+
+def read(rel: str) -> str:
+    return (ROOT / rel).read_text()
+
+
+def pick_references(description: str) -> list[str]:
+    want = description.lower()
+    refs = [path for triggers, path in REFERENCES if any(t in want for t in triggers)]
+    return [BASE_REFERENCE] + refs
+
+
+def build_prompt(name: str, description: str, references: list[str],
+                 kernels: bool) -> str:
+    parts = [
+        "# the contract (AGENTS.md)\n\n" + read("AGENTS.md"),
+        "# the registry this gets wired into (pluggy/models/builder.py)\n\n"
+        "```python\n" + read("pluggy/models/builder.py") + "```",
+    ]
+    for ref in references:
+        parts.append(f"# reference implementation ({ref})\n\n```python\n{read(ref)}```")
+    if kernels:
+        parts.append(
+            "# kernel house style (pluggy/kernels/)\n\n"
+            "existing kernels, importable as `from pluggy.kernels.<module> import <fn>`: "
+            + ", ".join(sorted(p.stem for p in KERNELS.glob("*.py") if p.stem != "__init__"))
+            + "\n\n```python\n" + read("pluggy/kernels/rms_norm.py") + "```\n"
+            + "```python\n" + read("pluggy/kernels/swiglu.py") + "```"
+        )
+    parts.append(
+        f"# the task\n\n"
+        f"Write `pluggy/models/{name}/{name}.py` implementing this architecture:\n\n"
+        f"{description.strip()}\n\n"
+        "Requirements, on top of everything in AGENTS.md:\n"
+        "- one self-contained file; `torch` + stdlib only, plus `pluggy.kernels` imports\n"
+        "- `self.blocks` (nn.ModuleList), `self.lm_head` (nn.Linear), and\n"
+        "  `forward(x, attention_mask=None, return_hidden_states=False, "
+        "return_final_hidden=False)` exactly as specified -- `return_final_hidden` "
+        "must skip lm_head entirely\n"
+        "- `init_weights(std=0.02)`, including the 1/sqrt(2 * num_layers) scaling on "
+        "every projection that writes into the residual stream\n"
+        "- keep both attention paths: the `is_causal=True` SDPA fast path for packed "
+        "training and the explicit-mask path for padded eval\n"
+        "- `__init__`'s signature IS the config schema (it is called with "
+        "`**config`), so every parameter must be a plain json-able value\n"
+        "- end with the `if __name__ == \"__main__\":` scaffold: build the model at a "
+        "small size, call `init_weights()`, run one forward pass on random ids, and "
+        "print the parameter count. this is the only check that runs before it is "
+        "registered, so make it real\n"
+    )
+    if kernels:
+        parts.append(
+            "# kernels\n\n"
+            "Also write any fused kernels that would genuinely speed this "
+            "architecture up, as files for `pluggy/kernels/`. Rules: pure torch "
+            "(`torch.compile`, `torch.autograd.Function`, `F.grouped_mm`) -- no "
+            "triton, no liger, no apex, nothing new to install. Each one must be "
+            "model-agnostic, must fall back to an eager path where a fused op is "
+            "unavailable, and must compose with torch.compile and FSDP2 (no graph "
+            "breaks on shapes, no .item() in the hot path). Reuse the existing "
+            "kernels above rather than reimplementing them, and have the model "
+            "import what you add. If nothing is worth fusing beyond what already "
+            "exists, return an empty list -- an unnecessary kernel is worse than "
+            "none, because it is another thing that can silently diverge from the "
+            "eager path."
+        )
+    else:
+        parts.append("# kernels\n\nReturn an empty `kernels` list for this run.")
+    return "\n\n---\n\n".join(parts)
+
+
+def write_model_files(name: str, result: dict, kernels_on: bool) -> list[Path]:
+    """write the model file and kernels; returns everything touched."""
+    written = []
+    model_dir = MODELS / name
+    model_dir.mkdir(parents=True, exist_ok=True)
+    model_path = model_dir / f"{name}.py"
+    model_path.write_text(result["model_code"])
+    written.append(model_path)
+    if not kernels_on:
+        return written
+    for kernel in result.get("kernels", []):
+        filename = Path(kernel["filename"]).name
+        if not filename.endswith(".py") or filename == "__init__.py":
+            log(f"  skipped kernel with unusable filename {kernel['filename']!r}")
+            continue
+        path = KERNELS / filename
+        path.write_text(kernel["code"])
+        written.append(path)
+        log(f"  kernel {path.relative_to(ROOT)}: {kernel['why']}")
+    return written
+
+
+def export_kernels(result: dict) -> None:
+    """
+    add the new kernels to pluggy/kernels/__init__.py, which is the documented
+    import surface ("import from here, not from the submodules").
+    """
+    kernels = [k for k in result.get("kernels", []) if (KERNELS / Path(k["filename"]).name).exists()]
+    if not kernels:
+        return
+    text = KERNEL_INIT.read_text()
+    imports, exports = [], []
+    for kernel in kernels:
+        module = Path(kernel["filename"]).stem
+        fn = kernel["export"]
+        line = f"from pluggy.kernels.{module} import {fn}\n"
+        if line not in text:
+            imports.append(line)
+        if f'"{fn}"' not in text:
+            exports.append(f'    "{fn}",\n')
+    if imports:
+        # after the last existing kernel import, so the block stays together
+        last = text.rindex("from pluggy.kernels.")
+        end = text.index("\n", last) + 1
+        text = text[:end] + "".join(imports) + text[end:]
+    if exports:
+        text = text.replace("__all__ = [\n", "__all__ = [\n" + "".join(exports), 1)
+    KERNEL_INIT.write_text(text)
+
+
+def validate(name: str) -> tuple[bool, str]:
+    """run the file's own __main__ scaffold; returns (ok, output)."""
+    proc = subprocess.run(
+        [sys.executable, "-m", f"pluggy.models.{name}.{name}"],
+        cwd=ROOT, capture_output=True, text=True, timeout=900,
+    )
+    return proc.returncode == 0, (proc.stdout + proc.stderr)[-4000:]
+
+
+def register(name: str, key: str, class_name: str) -> None:
+    """add the import + MODEL_REGISTRY entry, idempotently."""
+    text = BUILDER.read_text()
+    if f'"{key}":' in text:
+        log(f"  {key} already in MODEL_REGISTRY, leaving it alone")
+        return
+    import_line = f"from pluggy.models.{name}.{name} import {class_name}\n"
+    if import_line not in text:
+        last = text.rindex("from pluggy.models.")
+        end = text.index("\n", last) + 1
+        text = text[:end] + import_line + text[end:]
+    # before the registry's closing brace, matching the existing indentation
+    text = re.sub(r"(MODEL_REGISTRY = \{.*?)(\n\})",
+                  rf'\1\n    "{key}": {class_name},\2', text, count=1, flags=re.S)
+    BUILDER.write_text(text)
+
+
+def generate(name: str, description: str, model: str, kernels: bool,
+             repairs: int, max_tokens: int) -> dict:
+    client = GrokClient(model, temperature=0.2)
+    references = pick_references(description)
+    log(f"references: {', '.join(references)}")
+    prompt = build_prompt(name, description, references, kernels)
+    log(f"prompting {model} ({len(prompt) // 4} tokens of context)...")
+
+    result = client.generate_json(prompt, SCHEMA, system=SYSTEM, max_tokens=max_tokens)
+    if result is None:
+        raise RuntimeError(
+            "grok returned nothing usable -- most often the response hit "
+            f"max_tokens ({max_tokens}); retry with --max-tokens higher"
+        )
+
+    # snapshot the two shared files: they are on every training run's import
+    # path, so a failed generation must not leave them touched
+    builder_before, kernel_init_before = BUILDER.read_text(), KERNEL_INIT.read_text()
+    try:
+        for attempt in range(repairs + 1):
+            log(f"writing pluggy/models/{name}/{name}.py "
+                f"({len(result['model_code'].splitlines())} lines)")
+            write_model_files(name, result, kernels)
+            export_kernels(result)
+
+            log("validating: python -m pluggy.models."
+                f"{name}.{name} (constructs, inits, one forward)")
+            ok, output = validate(name)
+            if ok:
+                log(output.strip()[-500:])
+                break
+            log(f"  failed:\n{output.strip()[-1500:]}")
+            if attempt == repairs:
+                raise RuntimeError(
+                    f"the generated model still fails its own scaffold after "
+                    f"{repairs} repair round(s); it is left at "
+                    f"pluggy/models/{name}/{name}.py, unregistered"
+                )
+            log(f"repair round {attempt + 1}/{repairs}: handing the traceback back")
+            result = client.generate_json(
+                "The file you wrote fails its own __main__ scaffold. Fix it and "
+                "return the complete file again (same schema, no diffs).\n\n"
+                f"# what it printed\n\n```\n{output}\n```\n\n"
+                f"# the file you wrote\n\n```python\n{result['model_code']}```",
+                SCHEMA, system=SYSTEM, max_tokens=max_tokens,
+            ) or result
+
+        key = result["registry_key"]
+        register(name, key, result["class_name"])
+        # the registry is what the trainer imports; prove it still does
+        proc = subprocess.run(
+            [sys.executable, "-c",
+             "from pluggy.models.builder import MODEL_REGISTRY;"
+             f"assert MODEL_REGISTRY[{key!r}] is not None"],
+            cwd=ROOT, capture_output=True, text=True, timeout=300,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError("registering it broke the model registry:\n"
+                               + (proc.stdout + proc.stderr)[-1500:])
+    except Exception:
+        BUILDER.write_text(builder_before)
+        KERNEL_INIT.write_text(kernel_init_before)
+        raise
+
+    try:
+        config = json.loads(result["config_json"])
+    except json.JSONDecodeError:
+        config = {}
+    return {
+        "registry_key": key,
+        "class_name": result["class_name"],
+        "model_file": f"pluggy/models/{name}/{name}.py",
+        "kernels": [k["filename"] for k in result.get("kernels", [])] if kernels else [],
+        "config": config,
+        "summary": result["summary"],
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--name", required=True,
+                        help="directory + module name, [A-Za-z0-9_-]+")
+    parser.add_argument("--description", required=True,
+                        help="what to build, in prose")
+    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--no-kernels", dest="kernels", action="store_false",
+                        help="architecture only; skip the fused-kernel pass")
+    parser.add_argument("--repairs", type=int, default=2,
+                        help="how many times to hand a failing scaffold back")
+    parser.add_argument("--max-tokens", type=int, default=32768)
+    args = parser.parse_args()
+
+    if not re.fullmatch(r"[A-Za-z0-9_]+", args.name):
+        print("--name must be [A-Za-z0-9_]+ (it becomes a python module name)")
+        return 2
+
+    try:
+        result = generate(args.name, args.description, args.model,
+                          args.kernels, args.repairs, args.max_tokens)
+    except Exception as e:
+        log(f"FAILED: {e}")
+        return 1
+
+    log(f"registered {result['registry_key']} -> {result['class_name']}")
+    log(result["summary"])
+    # the frontend reads this line back out of the log
+    log("RESULT " + json.dumps(result))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

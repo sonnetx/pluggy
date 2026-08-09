@@ -130,6 +130,11 @@ def train_tests(base):
     broken(lambda c: c["optimizer"]["scheduler"].update(type="cosine"),
            "cosine scheduler takes no decay_ratio")
     broken(lambda c: c["optimizer"]["scheduler"].update(total_steps=0), "no steps")
+    # wandb.init is rank-0-only work, so a missing wandb used to wedge the run
+    # rather than fail it; the config must not get as far as a launch
+    if not srv._has_wandb():
+        err = broken(lambda c: c["wandb"].update(enabled=True), "wandb not installed")
+        assert "extra wandb" in err, err
 
     # the two run slots are independent, and neither starts anything here
     code, status = request(base, "/api/train/status")
@@ -146,6 +151,24 @@ def train_tests(base):
     assert code == 200, out
     code, out = request(base, "/api/train/run", {"name": "fsdp"})
     assert code == 400 and "benchmark" in out["error"], out
+
+    # writing a custom architecture: guards only, no api call and nothing
+    # spawned (the real thing needs XAI_API_KEY and takes minutes)
+    code, out = request(base, "/api/model/write", {"name": "bad-name",
+                                                   "description": "x" * 40})
+    assert code == 400 and "module name" in out["error"], out
+    code, out = request(base, "/api/model/write", {"name": "ok_name", "description": "too short"})
+    assert code == 400 and "describe" in out["error"], out
+    if "XAI_API_KEY" not in os.environ:
+        code, out = request(base, "/api/model/write",
+                            {"name": "ok_name", "description": "a dense model " * 5})
+        assert code == 409 and "XAI_API_KEY" in out["error"], out
+    code, status = request(base, "/api/model/status")
+    assert code == 200 and status["running"] is False and status["result"] is None
+
+    # the registry keys the page offers are read out of builder.py's source,
+    # so the page load never pays for a torch import
+    assert "qwen3_dense" in srv._registered_models()
 
     # metrics are scraped out of the run log the trainer writes
     log = Path("train_run_tiny_train.log")
