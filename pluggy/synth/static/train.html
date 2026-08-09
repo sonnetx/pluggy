@@ -111,7 +111,7 @@
 
               <div id="custom_model_area" style="display:none">
                 <label for="custom_model_desc">Describe the model you want</label>
-                <textarea id="custom_model_desc" rows="6" placeholder="Example: A 1.5B parameter dense model with 24 layers, 2048 hidden size, SwiGLU FFN, GQA with 8 KV heads..."></textarea>
+                <textarea id="custom_model_desc" rows="6" placeholder="Layers, dims, attention shape, activation, norms, anything unusual about it."></textarea>
                 <div class="row" style="margin-top:10px">
                   <div class="field">
                     <label for="custom_model_name">Name <span class="hint">— module + registry key</span></label>
@@ -237,7 +237,7 @@
 
               <div id="custom_model_area_expert" style="display:none; margin-top:12px">
                 <label for="custom_model_desc_expert">Describe the model you want</label>
-                <textarea id="custom_model_desc_expert" rows="6" placeholder="Example: A 1.5B parameter dense model with 24 layers, 2048 hidden size, SwiGLU FFN, GQA with 8 KV heads..."></textarea>
+                <textarea id="custom_model_desc_expert" rows="6" placeholder="Layers, dims, attention shape, activation, norms, anything unusual about it."></textarea>
                 <div class="row" style="margin-top:10px">
                   <div class="field">
                     <label for="custom_model_name_expert">Name <span class="hint">— module + registry key</span></label>
@@ -1258,6 +1258,14 @@ function trainConfigExpert() {
     model.num_experts = num("m_experts");
     model.top_k = num("m_topk");
   }
+  // __init__'s signature IS the config schema, and the form's seven fields are
+  // only qwen3's. an architecture written here declares its own kwargs, so
+  // send those and drop the rest -- an arch with no head_dim (latent
+  // attention, say) would otherwise be rejected for a key the form insisted on
+  const accepts = arch.configKeys;
+  const modelConfig = accepts
+    ? Object.fromEntries(Object.entries(model).filter(([k]) => accepts.includes(k)))
+    : model;
 
   const data = Object.assign({}, carried.data, dataSource($("d_name").value.trim()), {
     split: $("d_split").value.trim() || "train",
@@ -1280,7 +1288,7 @@ function trainConfigExpert() {
   const cfg = {
     ...carried.top,
     model: { ...carried.modelBlock, name: arch.id,
-             config: { ...carried.model, ...model } },
+             config: { ...carried.model, ...modelConfig } },
     mesh: { dp: Math.max(1, num("p_dp")) },
     parallelism: par,
     compile: $("p_compile").checked,
@@ -1426,7 +1434,17 @@ async function api(path, body) {
     body: JSON.stringify(body),
   });
   const data = await resp.json();
-  if (!resp.ok) throw new Error(data.error || resp.statusText);
+  if (!resp.ok) {
+    // a route the running server has never heard of. the pages are re-read
+    // from disk per request while server.py is loaded once at startup, so a
+    // server started before an endpoint existed serves the new ui against the
+    // old api -- and the bare "not found" gives no hint of that
+    if (resp.status === 404 && data.error === "not found") {
+      throw new Error(`the running server has no ${path} — restart it `
+        + `(uv run -m pluggy.synth.server); it predates this page`);
+    }
+    throw new Error(data.error || resp.statusText);
+  }
   return data;
 }
 
@@ -1451,6 +1469,31 @@ async function launch(steps) {
  * running it, and registers it. only then can it be trained, so on success we
  * fold it into the catalogue and hand the form over to it.
  */
+/* prefilled into both description boxes as real, editable text rather than a
+ * placeholder: a working example is easier to edit down than a blank box is to
+ * fill, and it shows the level of detail that gets a good architecture back.
+ * the Name field is deliberately NOT prefilled -- naming it is the deliberate
+ * act that separates "reading the example" from "writing a model".
+ *
+ * it asks for a different sequence mixer (gated delta net, linear attention
+ * with a delta-rule state update) rather than a rearranged qwen3 -- anything
+ * reachable by editing the Architecture card above is not worth an api call.
+ * "hybrid" in the text also steers write_model.py's reference picker to
+ * gemma4.py, which is the file that shows per-layer type patterns. */
+const EXAMPLE_ARCH =
+  "A hybrid linear-attention decoder, not another softmax transformer. Three "
+  + "of every four layers replace attention with a gated DeltaNet: each head "
+  + "carries a recurrent state matrix S of shape (head_dim, head_dim), updated "
+  + "as S_t = a_t * S_{t-1} @ (I - b_t k_t k_tᵀ) + b_t v_t k_tᵀ and read out as "
+  + "o_t = S_t q_t, where q and k are SiLU'd then L2-normalized, b_t = "
+  + "sigmoid(W_b x) is the delta-rule write strength and a_t = sigmoid(W_a x) "
+  + "is a per-head forget gate. Every fourth layer stays full causal GQA so the "
+  + "model keeps exact recall. Compute the DeltaNet layers chunkwise in pure "
+  + "torch — chunk 64, matmuls within a chunk, sequential across chunks, no "
+  + "triton and no custom cuda — and put a sigmoid output gate on the layer. "
+  + "32 layers, emb 2048, 16 heads at head_dim 128, SwiGLU FFN 5632, RMSNorm "
+  + "throughout, vocab 151936 for the Qwen3 tokenizer.";
+
 const customIds = suffix => ({
   desc: "custom_model_desc" + suffix,
   name: "custom_model_name" + suffix,
@@ -1512,6 +1555,9 @@ function adoptCustomModel(result) {
   };
   const arch = {
     id: result.registry_key, name: result.registry_key, tied: true,
+    // the kwargs this architecture actually takes, so the form doesn't send it
+    // fields its __init__ has never heard of
+    configKeys: Object.keys(c),
     vocab: c.vocab_size || 151936,
     // tokenizer is a data-side choice, not an architecture one; qwen3's is the
     // page default and the Data card can change it
@@ -1766,7 +1812,10 @@ function applyTrainConfig(cfg, name) {
   $("r_save").value = ck.save_steps || 6000;
   $("r_resume").value = ck.resume || "";
   const wb = cfg.wandb || {};
-  $("r_wandb").checked = !!wb.enabled;
+  // a config saved with wandb on can't run on a machine without wandb, and the
+  // box is disabled there -- load it off rather than into a launch the server
+  // will refuse (the label says why it's disabled)
+  $("r_wandb").checked = !!wb.enabled && !$("r_wandb").disabled;
   $("r_project").value = wb.project || "pluggy";
   $("r_seed").value = cfg.seed || 0;
   $("r_name").value = cfg.run_name || name;
@@ -1878,6 +1927,8 @@ nameEl.addEventListener("keydown", (e) => {
 
 initPickers();
 renderDatasets();
+$("custom_model_desc").value = EXAMPLE_ARCH;
+$("custom_model_desc_expert").value = EXAMPLE_ARCH;
 
 // Show/hide custom model description area
 function updateCustomModelArea() {

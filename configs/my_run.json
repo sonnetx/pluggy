@@ -1,23 +1,20 @@
 {
   "model": {
-    "name": "qwen3_dense",
+    "name": "hybrid_test",
     "config": {
-      "num_layers": 28,
+      "num_layers": 32,
       "num_heads": 16,
       "num_kv_heads": 8,
-      "emb_dim": 1024,
+      "emb_dim": 2048,
       "head_dim": 128,
       "vocab_size": 151936,
-      "ffn_dim": 3072
+      "ffn_dim": 5632
     }
   },
   "mesh": {
     "dp": 4
   },
   "parallelism": "ddp",
-  "ddp": {
-    "bucket_mb": 25
-  },
   "compile": true,
   "optimizer": {
     "name": "adamw",
@@ -33,7 +30,7 @@
     "max_norm": 1,
     "scheduler": {
       "type": "wsd",
-      "total_steps": 127314,
+      "total_steps": 41667,
       "warmup_ratio": 0.01,
       "decay_ratio": 0.1
     }
@@ -47,10 +44,11 @@
     }
   },
   "data": {
+    "name": "OptimalScale/ClimbMix",
+    "split": "train",
     "tokenizer": "Qwen/Qwen3-0.6B",
     "eos_token": "<|endoftext|>",
     "pad_token": "<|fim_pad|>",
-    "split": "train",
     "text_field": "text",
     "shuffle_buffer": 1000,
     "seed": 42,
@@ -58,11 +56,10 @@
     "global_batch_size": 32,
     "micro_batch_size": 2,
     "seq_len": 4096,
-    "pack_batch": 1000,
-    "name": "OptimalScale/ClimbMix"
+    "pack_batch": 1000
   },
   "checkpointing": {
-    "save_steps": 12731,
+    "save_steps": 4167,
     "resume": null
   },
   "wandb": {
@@ -70,5 +67,8 @@
     "project": "pluggy"
   },
   "seed": 0,
-  "run_name": "my_run"
+  "run_name": "my_run",
+  "ddp": {
+    "bucket_mb": 25
+  }
 }

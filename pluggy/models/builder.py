@@ -5,6 +5,8 @@ from pluggy.models.llama3.llama3 import Llama3
 from pluggy.models.olmo3.olmo3 import Olmo3
 from pluggy.models.qwen3.qwen3 import Qwen3
 from pluggy.models.qwen3_moe.qwen3_moe import Qwen3Moe
+from pluggy.models.grokathon_model.grokathon_model import GrokathonModel
+from pluggy.models.hybrid_test.hybrid_test import HybridTest
 
 MODEL_REGISTRY = {
     "qwen3_dense": Qwen3,
@@ -12,6 +14,8 @@ MODEL_REGISTRY = {
     "llama3_2": Llama3,
     "olmo3": Olmo3,
     "gemma4": Gemma4,
+    "grokathon_model": GrokathonModel,
+    "hybrid_test": HybridTest,
 }
 
 
