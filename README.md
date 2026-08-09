@@ -155,14 +155,27 @@ importer fails loudly (naming the fix) if it isn't.
 
 ### frontend
 
-a minimal web ui covers every pipeline knob (domains, styles, judge
-thresholds, dedup, sharding), saves/loads configs under `configs/`, and
-launches + monitors runs (live log tail, shard/job progress). stdlib-only
-http server, no new deps:
+a minimal web ui, stdlib-only http server, no new deps:
 
 ```bash
 uv run -m pluggy.synth.server    # http://127.0.0.1:8642, run from repo root
 ```
+
+`/` covers every generation knob (domains, styles, judge thresholds, dedup,
+sharding), saves/loads configs under `configs/`, and launches + monitors runs
+(live log tail, shard/job progress).
+
+`/train` composes a *training* config -- managed mode picks an arch/size, a
+dataset mixture and a gpu count and sizes the schedule from them; expert mode
+edits every field of the json directly, and loads any config already in
+`configs/`. Launch saves the config and starts the same command the cli would
+(`torchrun --nproc_per_node=<mesh> -m pluggy.train.train --config ...`) over
+this machine's gpus, streaming loss/tps and the log back into the page;
+Benchmark is that with `--steps 20`. the run gets its own process group, so
+Stop reaches every rank -- and so a run outlives the server that started it.
+config blocks are validated against the constructors they are unpacked into
+before anything launches, so a typo'd key is a message in the ui rather than a
+`TypeError` a minute into the run.
 
 ## tests
 

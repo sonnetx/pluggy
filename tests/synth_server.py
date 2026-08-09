@@ -1,7 +1,12 @@
 """
-synth frontend api tests -- localhost only, no llm, no run launched. spins
-the stdlib server up on an ephemeral port in a thread and exercises the
-config save/load/validate endpoints plus status/meta.
+synth frontend api tests -- localhost only, no llm, no training run actually
+launched. spins the stdlib server up on an ephemeral port in a thread and
+exercises the config save/load/validate endpoints plus status/meta, for both
+the generation page (/api/*) and the training page (/api/train/*).
+
+the train half is where validation earns its keep: those configs are unpacked
+straight into constructors, so a typo'd key would otherwise surface as a
+TypeError a minute into a launch.
 
 uv run tests/synth_server.py
 """
@@ -14,6 +19,7 @@ import urllib.error
 import urllib.request
 
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 
 from pluggy.synth import server as srv
 
@@ -56,6 +62,101 @@ def good_config():
         "dedup": {"ngram": 13, "jaccard_threshold": 0.8},
         "output": {"dir": "data/tiny", "shard_docs": 10},
     }
+
+
+def train_config():
+    """what the /train page builds in expert mode, at the smallest size."""
+    return {
+        "model": {"name": "qwen3_dense", "config": {
+            "num_layers": 12, "num_heads": 12, "num_kv_heads": 4, "emb_dim": 768,
+            "head_dim": 64, "vocab_size": 151936, "ffn_dim": 2048}},
+        "mesh": {"dp": 1},
+        "parallelism": "ddp",
+        "ddp": {"bucket_mb": 25},
+        "compile": True,
+        "optimizer": {
+            "name": "adamw",
+            "config": {"lr": 3e-4, "weight_decay": 0.1, "betas": [0.9, 0.95], "fused": True},
+            "max_norm": 1.0,
+            "scheduler": {"type": "wsd", "total_steps": 50, "warmup_ratio": 0.01,
+                          "decay_ratio": 0.1}},
+        "objective": {"name": "AR", "config": {
+            "ignore_index": -100, "fused_linear_ce": True, "ce_chunk_size": 4096}},
+        "data": {"name": "OptimalScale/ClimbMix", "split": "train",
+                 "tokenizer": "Qwen/Qwen3-0.6B", "eos_token": "<|endoftext|>",
+                 "pad_token": "<|fim_pad|>", "text_field": "text", "shuffle_buffer": 100,
+                 "seed": 42, "num_workers": 2, "global_batch_size": 8,
+                 "micro_batch_size": 2, "seq_len": 1024, "pack_batch": 100},
+        "checkpointing": {"save_steps": 10000, "resume": None},
+        "wandb": {"enabled": False, "project": "pluggy"},
+        "seed": 0,
+        "run_name": "test_run",
+    }
+
+
+def train_tests(base):
+    # the train page serves, and meta reports gpus without importing torch
+    with urllib.request.urlopen(base + "/train") as resp:
+        assert resp.status == 200 and b"Launch run" in resp.read()
+    code, meta = request(base, "/api/train/meta")
+    assert code == 200 and meta["configs"] == [] and meta["gpu_count"] == len(meta["gpus"])
+
+    # a good config saves, lists separately from the synth configs, loads back
+    code, out = request(base, "/api/train/config", {"name": "tiny_train",
+                                                    "config": train_config()})
+    assert code == 200, out
+    # the two config lists are disjoint: same directory, told apart by shape
+    code, meta = request(base, "/api/train/meta")
+    assert meta["configs"] == ["tiny_train"], meta
+    code, meta = request(base, "/api/meta")
+    assert "tiny_train" not in meta["configs"], "a train config listed as a synth config"
+    code, loaded = request(base, "/api/train/config/tiny_train")
+    assert code == 200 and loaded == train_config()
+
+    # the checks worth having: each of these dies deep inside a launch otherwise
+    def broken(mutate, why):
+        cfg = train_config()
+        mutate(cfg)
+        code, out = request(base, "/api/train/config", {"name": "bad", "config": cfg})
+        assert code == 400, f"should have been rejected: {why}"
+        return out["error"]
+
+    broken(lambda c: c.pop("mesh"), "no mesh block")
+    broken(lambda c: c["model"].update(name="nope"), "unregistered model")
+    broken(lambda c: c["model"]["config"].pop("num_layers"), "missing constructor kwarg")
+    broken(lambda c: c["model"]["config"].update(num_layer=12), "typo'd constructor kwarg")
+    broken(lambda c: c["data"].pop("pad_token"), "no pad token")
+    broken(lambda c: c["data"].update(global_batch_size=7), "batch not divisible by mbs x dp")
+    broken(lambda c: c["optimizer"]["scheduler"].update(type="cosine"),
+           "cosine scheduler takes no decay_ratio")
+    broken(lambda c: c["optimizer"]["scheduler"].update(total_steps=0), "no steps")
+
+    # the two run slots are independent, and neither starts anything here
+    code, status = request(base, "/api/train/status")
+    assert code == 200 and status["running"] is False and status["metrics"] == []
+    code, _ = request(base, "/api/train/stop", {})
+    assert code == 409, "stopping with no run is a 409"
+    code, _ = request(base, "/api/train/run", {"name": "missing"})
+    assert code == 404
+    code, out = request(base, "/api/train/run", {"name": "tiny_train", "steps": 0})
+    assert code == 400 and "steps" in out["error"], out
+    # fsdp2 would have the checkpointer write one rank's shard as the model
+    fsdp = {**train_config(), "parallelism": "fsdp2"}
+    code, out = request(base, "/api/train/config", {"name": "fsdp", "config": fsdp})
+    assert code == 200, out
+    code, out = request(base, "/api/train/run", {"name": "fsdp"})
+    assert code == 400 and "benchmark" in out["error"], out
+
+    # metrics are scraped out of the run log the trainer writes
+    log = Path("train_run_tiny_train.log")
+    log.write_text(
+        "step=0 || loss=11.2340 || gnorm=1.234 || lr=3.00e-04 || tps=54321\n"
+        "warning: something unrelated\n"
+        "step=1 || loss=10.0000 || gnorm=0.500 || lr=2.99e-04 || tps=55000\n")
+    points = srv._train_metrics(log)
+    assert [p["step"] for p in points] == [0, 1], points
+    assert points[0]["loss"] == 11.234 and points[1]["tps"] == 55000, points
+    print("all train server tests passed")
 
 
 def main():
@@ -132,6 +233,8 @@ def main():
     no_work = {k: v for k, v in good_config().items() if k != "seed_domains"}
     code, out = request(base, "/api/config", {"name": "bad", "config": no_work})
     assert code == 400, "config with neither domains nor grounding must be rejected"
+
+    train_tests(base)
 
     httpd.shutdown()
     print("all synth server tests passed")

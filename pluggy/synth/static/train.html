@@ -252,6 +252,22 @@
                   <input type="number" id="m_head_dim" min="1" value="128">
                 </div>
               </div>
+              <!-- moe only: qwen3_moe's __init__ requires these, dense archs
+                   reject them, so the row follows the arch select -->
+              <div class="row" id="moe_row" style="display:none">
+                <div class="field">
+                  <label for="m_moe_ffn">Expert FFN dim</label>
+                  <input type="number" id="m_moe_ffn" min="1" value="384">
+                </div>
+                <div class="field">
+                  <label for="m_experts">Experts</label>
+                  <input type="number" id="m_experts" min="1" value="64">
+                </div>
+                <div class="field">
+                  <label for="m_topk">Top-k</label>
+                  <input type="number" id="m_topk" min="1" value="6">
+                </div>
+              </div>
             </div>
           </div>
 
@@ -373,13 +389,27 @@
                   <input type="text" id="d_split" value="train">
                 </div>
                 <div class="field">
+                  <label for="d_config">Subset <span class="hint">— hf config</span></label>
+                  <input type="text" id="d_config" placeholder="none">
+                </div>
+                <div class="field">
                   <label for="d_text">Text field</label>
                   <input type="text" id="d_text" value="text">
                 </div>
               </div>
-              <div class="field">
-                <label for="d_tok">Tokenizer</label>
-                <input type="text" id="d_tok" value="Qwen/Qwen3-0.6B">
+              <div class="row">
+                <div class="field">
+                  <label for="d_tok">Tokenizer</label>
+                  <input type="text" id="d_tok" value="Qwen/Qwen3-0.6B">
+                </div>
+                <div class="field">
+                  <label for="d_eos">EOS token</label>
+                  <input type="text" id="d_eos" value="&lt;|endoftext|&gt;">
+                </div>
+                <div class="field">
+                  <label for="d_pad">Pad token</label>
+                  <input type="text" id="d_pad" value="&lt;|fim_pad|&gt;">
+                </div>
               </div>
               <div class="row">
                 <div class="field">
@@ -407,6 +437,10 @@
                 <div class="field">
                   <label for="d_pack">Pack batch</label>
                   <input type="number" id="d_pack" min="1" value="1000">
+                </div>
+                <div class="field">
+                  <label for="d_seed">Data seed <span class="hint">— shuffle</span></label>
+                  <input type="number" id="d_seed" value="42">
                 </div>
               </div>
             </div>
@@ -499,7 +533,7 @@
             </div>
           </div>
           <div class="card-body">
-            <div class="plot">No metrics yet — launch a run to stream loss, lr and tps here.</div>
+            <div class="plot" id="plot">No metrics yet — launch a run to stream loss, lr and tps here.</div>
           </div>
           <pre class="log" id="log">No run yet.</pre>
         </div>
@@ -560,6 +594,7 @@ const ARCHS = [
   {
     id: "qwen3_dense", name: "Qwen3 Dense", tied: true,
     vocab: 151936, tokenizer: "Qwen/Qwen3-0.6B",
+    eos: "<|endoftext|>", pad: "<|fim_pad|>",
     sizes: [
       // scaled down from 0.6B on qwen3's own ratios (ffn ~2.7x emb, 4:1 gqa)
       // for smoke tests and single-gpu runs -- no upstream config this small
@@ -573,7 +608,9 @@ const ARCHS = [
   },
   {
     id: "llama3_2", name: "Llama 3.2", tied: false,
-    vocab: 128256, tokenizer: "meta-llama/Llama-3.2-1B",
+    // meta-llama is a gated repo; unsloth mirrors the same tokenizer ungated
+    vocab: 128256, tokenizer: "unsloth/Llama-3.2-1B",
+    eos: "<|end_of_text|>", pad: "<|finetune_right_pad_id|>",
     sizes: [
       // llama 3.2 only ships 1B and 3B text models, so the small end is
       // interpolated down on its ratios (ffn 4x emb, head_dim 64)
@@ -587,7 +624,8 @@ const ARCHS = [
   },
   {
     id: "olmo3", name: "Olmo 3", tied: false,
-    vocab: 100278, tokenizer: "allenai/OLMo-3-7B",
+    vocab: 100278, tokenizer: "allenai/Olmo-3-7B-Think",
+    eos: "<|endoftext|>", pad: "<|pad|>",
     sizes: [
       // olmo 3 ships 7B and 32B; the small end is derived on its ratios (mha,
       // ffn ~2.7x emb). 1.5B is the construct-and-count shape from
@@ -604,7 +642,8 @@ const ARCHS = [
     // full-attention layers use `ghd`, one in every `pattern` layers
     // (Gemma4's defaults: 256 / 512, 5:1). see pluggy/models/gemma4/gemma4.py.
     id: "gemma4", name: "Gemma 4", tied: true,
-    vocab: 262144, tokenizer: "google/gemma-4-1b-pt",
+    vocab: 262144, tokenizer: "google/gemma-4-E2B-it",
+    eos: "<eos>", pad: "<pad>",
     ghd: 512, pattern: 6,
     sizes: [
       { id: "g-270m", name: "270M", origin: "pluggy", layers: 18, heads: 4, kv: 1, hd: 256, emb: 640, ffn: 2048 },
@@ -617,8 +656,9 @@ const ARCHS = [
   {
     // Qwen3-MoE (dropless, no shared expert). See pluggy/models/qwen3_moe/qwen3_moe.py
     // Common sizes derived from the official 30B-A3B (48L, 2048d, 128 experts, top-8).
-    id: "qwen3_moe", name: "Qwen3 MoE", tied: true,
+    id: "qwen3_moe", name: "Qwen3 MoE", tied: true, moe: true,
     vocab: 151936, tokenizer: "Qwen/Qwen3-0.6B",
+    eos: "<|endoftext|>", pad: "<|fim_pad|>",
     sizes: [
       { id: "qmoe-0.5b", name: "0.5B-A0.1B", origin: "pluggy", layers: 16, heads: 8, kv: 2, hd: 64, emb: 1024, ffn: 2048, moe_ffn_dim: 256, num_experts: 32, top_k: 4 },
       { id: "qmoe-1.5b", name: "1.5B-A0.4B", origin: "pluggy", layers: 24, heads: 12, kv: 4, hd: 128, emb: 1536, ffn: 3072, moe_ffn_dim: 384, num_experts: 64, top_k: 6 },
@@ -936,25 +976,17 @@ function initPickers() {
 
 /* ---------- managed estimate ---------- */
 function managed() {
-  const arch = picked.arch, m = picked.size, gpu = picked.gpu;
-  const n = num("mg_count"), hours = Math.max(0, num("mg_hours"));
-  const total = totalOf(m, arch.vocab, arch.tied, arch);
-
-  // measured tps scaled by compute per token (~linear in params), then by
-  // the ddp scaling efficiency at this gpu count
-  const perGpu = gpu.tps * (REF_PARAMS / total);
-  const tps = perGpu * n * scalingEff(gpu, n);
-  const tokens = tps * hours * 3600;
-  const cost = gpu.price * n * hours;
-  const seq = 4096, gbs = 32 * Math.max(1, n / 4);
-  const steps = tokens / (gbs * seq);
+  // the same plan the launched config is built from, so the estimate below
+  // describes the run that actually starts
+  const p = managedPlan();
+  const { arch, m, gpu, n, hours, total, tps, tokens, steps, cost } = p;
   const ratio = tokens / total;
 
   const rows = [
     ["Parameters", compact(total), "Throughput", compact(tps) + " tok/s"],
     ["Tokens seen", compact(tokens), "Steps", compact(steps)],
     ["Tokens per param <small>chinchilla-optimal is ~20</small>", ratio.toFixed(1) + "×",
-     "Scaling efficiency", Math.round(scalingEff(gpu, n) * 100) + "%"],
+     "Scaling efficiency", Math.round(p.eff * 100) + "%"],
     ["GPU hours", compact(n * hours), "Estimated cost", money(cost)],
   ];
   $("mg_table").innerHTML = rows.map(([k1, v1, k2, v2]) =>
@@ -966,7 +998,10 @@ function managed() {
     `<b>${n}× ${gpu.name}</b> for <b>${hours} h</b> at ${money(gpu.price)}/gpu-hour. ` +
     `throughput is pluggy's measured ${compact(gpu.tps)} tok/s single-gpu figure for ` +
     `qwen3 0.6B, scaled by parameter count and by ddp scaling efficiency — a projection, ` +
-    `not a guarantee. rental prices are indicative.`;
+    `not a guarantee. rental prices are indicative.\n\n` +
+    // renting isn't implemented; the estimate is a costing tool, and Launch
+    // runs the same config on whatever gpus this machine has
+    `${localGpuNote()}, for ${compact(steps)} steps at global batch ${p.gbs} × ${p.seq} tokens.`;
 
   renderSelectors();
   refreshShares();
@@ -985,6 +1020,9 @@ function managed() {
 /* copy the managed selection into the expert fields, then switch */
 function openInExpert() {
   const arch = picked.arch, m = picked.size;
+  // the managed picks fully describe the model/data, so nothing survives from
+  // a config loaded earlier
+  carried = { top: {}, model: {}, modelBlock: {}, data: {}, checkpointing: {} };
   $("m_layers").value = m.layers;
   $("m_heads").value = m.heads;
   $("m_kv_heads").value = m.kv;
@@ -993,12 +1031,25 @@ function openInExpert() {
   $("m_ffn").value = m.ffn;
   $("m_vocab").value = arch.vocab;
   $("m_name").value = arch.id;
-  $("d_tok").value = arch.tokenizer;
+  if (m.moe_ffn_dim) {
+    $("m_moe_ffn").value = m.moe_ffn_dim;
+    $("m_experts").value = m.num_experts;
+    $("m_topk").value = m.top_k;
+  }
+  applyArchDefaults(arch);
   // expert's Data card edits a single source; carry the heaviest one over and
   // say so, rather than silently dropping the rest of the mixture
   const heaviest = picked.datasets.reduce((a, b) => ((+b.percent || 0) > (+a.percent || 0) ? b : a));
   if (heaviest.hf) $("d_name").value = heaviest.hf;
+  $("d_config").value = heaviest.config || "";
   $("p_dp").value = num("mg_count");
+  // managed sizes its schedule from the rental hours; carry that over too, so
+  // the two modes describe the same run instead of silently disagreeing
+  const plan = managedPlan();
+  $("d_gbs").value = plan.gbs;
+  $("d_mbs").value = plan.mbs;
+  $("s_steps").value = plan.steps;
+  $("r_save").value = plan.saveSteps;
   const name = $("head_name").textContent.trim() || "untitled";
   $("r_name").value = name;
   $("cfg_name").value = name;
@@ -1015,6 +1066,24 @@ function openInExpert() {
 function segValue(id) {
   const on = $(id).querySelector('[aria-pressed="true"]');
   return on ? on.dataset.val : null;
+}
+
+/* the title is contenteditable, so rewriting it while it has focus would drop the
+   caret and eat what is being typed — mirror into it only when it is not focused */
+function setHeadName(name) {
+  const el = $("head_name");
+  if (el === document.activeElement) return;
+  if (el.textContent.trim() !== name) el.textContent = name;
+}
+
+/* expert's Run name / Config name inputs are what the json is built from, so an
+   edit to the title has to land in them */
+function syncNameToExpertFields() {
+  const r = $("r_name"), c = $("cfg_name");
+  const name = $("head_name").textContent.trim() || "untitled";
+  // config name follows the run name only while the two still agree
+  if (c.value.trim() === r.value.trim()) c.value = name;
+  r.value = name;
 }
 
 function expert() {
@@ -1069,7 +1138,7 @@ function expert() {
 
   const runName = $("r_name").value.trim() || "untitled";
   const configName = $("cfg_name").value.trim() || runName;
-  $("head_name").textContent = runName;
+  setHeadName(runName);
   $("crumb_cfg").textContent = configName;
   $("head_params").textContent = compact(total) + " params";
   $("head_meta").innerHTML =
@@ -1078,6 +1147,437 @@ function expert() {
     `<span>${$("d_name").value}</span>`;
   $("data_note").textContent = compact(tokensPerStep) + " tok/step";
   $("arch_note").textContent = num("m_layers") + "L · " + num("m_emb") + "d";
+}
+
+/* ---------- config json ----------
+ * everything below builds the exact json pluggy/train/train.py reads, so the
+ * page and `torchrun -m pluggy.train.train --config ...` describe one thing.
+ * the server re-validates each block against the constructor it is unpacked
+ * into (pluggy/synth/server.py:_validate_train) before it will launch.
+ */
+
+/* hub dataset ("org/name") vs local shards ("data/synth_v0/shard-*.jsonl") --
+ * the dataloader takes exactly one of "name" or "data_files" per source */
+function dataSource(spec) {
+  const local = /[*?]/.test(spec) || spec.endsWith(".jsonl") || spec.endsWith(".json");
+  return local ? { data_files: spec } : { name: spec };
+}
+
+function schedulerBlock(type, steps, warmup, decay) {
+  const sched = { type, total_steps: steps, warmup_ratio: warmup };
+  // CosineAnnealingScheduler takes no decay_ratio and would TypeError on it
+  if (type === "wsd") sched.decay_ratio = decay;
+  return sched;
+}
+
+/* a hand-written config can carry keys this form has no widget for --
+ * model.init_from_hf (mid-training from hub weights), compile_mode,
+ * checkpointing.resume_scheduler, an arch's rope_base... rebuilding the json
+ * from the fields alone would silently drop them, which for init_from_hf
+ * quietly turns a mid-training run into a from-scratch one. so loading a
+ * config parks whatever the form doesn't own here, and saving merges it back.
+ */
+const FORM_MODEL_KEYS = ["num_layers", "num_heads", "num_kv_heads", "emb_dim",
+  "head_dim", "vocab_size", "ffn_dim", "moe_ffn_dim", "num_experts", "top_k"];
+const FORM_TOP_KEYS = ["model", "mesh", "parallelism", "ddp", "compile", "optimizer",
+  "objective", "data", "checkpointing", "wandb", "seed", "run_name"];
+const FORM_DATA_KEYS = ["name", "data_files", "config", "split", "text_field", "tokenizer",
+  "eos_token", "pad_token", "shuffle_buffer", "seed", "num_workers", "global_batch_size",
+  "micro_batch_size", "seq_len", "pack_batch", "sources", "mixing", "weight"];
+let carried = { top: {}, model: {}, modelBlock: {}, data: {}, checkpointing: {} };
+
+const carriedKeys = () => [
+  ...Object.keys(carried.top), ...Object.keys(carried.model),
+  ...Object.keys(carried.modelBlock), ...Object.keys(carried.data),
+  ...Object.keys(carried.checkpointing),
+];
+const dropKeys = (obj, keys) => Object.fromEntries(
+  Object.entries(obj || {}).filter(([k]) => !keys.includes(k)));
+
+function trainConfigExpert() {
+  const arch = ARCHS.find(a => a.id === $("m_name").value);
+  if (!arch) throw new Error(
+    "Custom Model has no registered architecture yet — write one into "
+    + "pluggy/models/ and add it to MODEL_REGISTRY first");
+  const emb = num("m_emb");
+  const model = {
+    num_layers: num("m_layers"), num_heads: num("m_heads"),
+    num_kv_heads: num("m_kv_heads"), emb_dim: emb, head_dim: num("m_head_dim"),
+    vocab_size: num("m_vocab"), ffn_dim: ffnOf(emb, +$("m_ffn").value.trim() || null),
+  };
+  if (arch.moe) {
+    model.moe_ffn_dim = num("m_moe_ffn");
+    model.num_experts = num("m_experts");
+    model.top_k = num("m_topk");
+  }
+
+  const data = Object.assign({}, carried.data, dataSource($("d_name").value.trim()), {
+    split: $("d_split").value.trim() || "train",
+    tokenizer: $("d_tok").value.trim(),
+    eos_token: $("d_eos").value.trim(),
+    pad_token: $("d_pad").value.trim(),
+    text_field: $("d_text").value.trim() || "text",
+    shuffle_buffer: num("d_shuffle"),
+    seed: num("d_seed"),
+    num_workers: num("d_workers"),
+    global_batch_size: num("d_gbs"),
+    micro_batch_size: num("d_mbs"),
+    seq_len: num("d_seq"),
+    pack_batch: num("d_pack"),
+  });
+  const subset = $("d_config").value.trim();
+  if (subset && data.name) data.config = subset;
+
+  const par = segValue("par_seg");
+  const cfg = {
+    ...carried.top,
+    model: { ...carried.modelBlock, name: arch.id,
+             config: { ...carried.model, ...model } },
+    mesh: { dp: Math.max(1, num("p_dp")) },
+    parallelism: par,
+    compile: $("p_compile").checked,
+    optimizer: {
+      name: "adamw",
+      config: {
+        lr: parseFloat($("o_lr").value), weight_decay: parseFloat($("o_wd").value),
+        betas: [parseFloat($("o_b1").value), parseFloat($("o_b2").value)],
+        fused: $("o_fused").checked,
+      },
+      max_norm: parseFloat($("o_clip").value),
+      scheduler: schedulerBlock(segValue("sched_seg"), num("s_steps"),
+                                parseFloat($("s_warmup").value),
+                                parseFloat($("s_decay").value)),
+    },
+    objective: {
+      name: "AR",
+      config: { ignore_index: num("j_ignore"), fused_linear_ce: $("j_fused").checked,
+                ce_chunk_size: num("j_chunk") },
+    },
+    data,
+    checkpointing: { ...carried.checkpointing, save_steps: num("r_save"),
+                     resume: $("r_resume").value.trim() || null },
+    wandb: { enabled: $("r_wandb").checked, project: $("r_project").value.trim() || "pluggy" },
+    seed: num("r_seed"),
+    run_name: $("r_name").value.trim() || "untitled",
+  };
+  if (par === "ddp") cfg.ddp = { bucket_mb: num("p_bucket") };
+  return cfg;
+}
+
+/* managed mode picks the run shape the estimate is computed from, so the two
+ * can never disagree: batch shape here, step count from the rented hours. */
+function managedPlan() {
+  const arch = picked.arch, m = picked.size, gpu = picked.gpu;
+  const n = Math.max(1, num("mg_count")), hours = Math.max(0, num("mg_hours"));
+  const total = totalOf(m, arch.vocab, arch.tied, arch);
+  const eff = scalingEff(gpu, n);
+  const tps = gpu.tps * (REF_PARAMS / total) * n * eff;
+  const tokens = tps * hours * 3600;
+  const seq = 4096, mbs = 2;
+  // global batch must be a whole number of (micro batch x dp) backwards
+  const unit = mbs * n;
+  const gbs = Math.max(unit, Math.round(32 * Math.max(1, n / 4) / unit) * unit);
+  const steps = Math.max(10, Math.round(tokens / (gbs * seq)));
+  return { arch, m, gpu, n, hours, total, eff, tps, tokens, seq, mbs, gbs, steps,
+           saveSteps: Math.max(50, Math.round(steps / 10)),
+           cost: gpu.price * n * hours };
+}
+
+function trainConfigManaged() {
+  const p = managedPlan();
+  if (!p.arch.id || p.arch.custom) throw new Error(
+    "Custom Model has no registered architecture yet — write one into "
+    + "pluggy/models/ and add it to MODEL_REGISTRY first");
+  const model = {
+    num_layers: p.m.layers, num_heads: p.m.heads, num_kv_heads: p.m.kv,
+    emb_dim: p.m.emb, head_dim: p.m.hd, vocab_size: p.arch.vocab,
+    ffn_dim: ffnOf(p.m.emb, p.m.ffn),
+  };
+  if (p.arch.moe) {
+    model.moe_ffn_dim = p.m.moe_ffn_dim;
+    model.num_experts = p.m.num_experts;
+    model.top_k = p.m.top_k;
+  }
+
+  const blank = picked.datasets.find(d => !(d.hf || "").trim());
+  if (blank) throw new Error(`dataset "${blank.name}" has no path — fill it in or remove the row`);
+  const sources = picked.datasets.map(d => {
+    const src = dataSource(d.hf.trim());
+    src.weight = Math.max(1, Math.round(+d.percent || 0));
+    if (d.config && src.name) src.config = d.config;
+    return src;
+  });
+
+  const name = configSlug($("head_name").textContent);
+  const data = {
+    tokenizer: p.arch.tokenizer, eos_token: p.arch.eos, pad_token: p.arch.pad,
+    split: "train", text_field: "text", shuffle_buffer: 1000, seed: 42,
+    num_workers: 4, global_batch_size: p.gbs, micro_batch_size: p.mbs,
+    seq_len: p.seq, pack_batch: 1000,
+  };
+  // a single source reads better flattened onto data, exactly like the
+  // hand-written configs under configs/
+  if (sources.length === 1) {
+    delete sources[0].weight;
+    Object.assign(data, sources[0]);
+  } else {
+    data.sources = sources;
+    data.mixing = { stopping_strategy: $("mg_stopping").value };
+  }
+
+  return {
+    model: { name: p.arch.id, config: model },
+    mesh: { dp: p.n },
+    parallelism: "ddp",
+    ddp: { bucket_mb: 25 },
+    compile: true,
+    optimizer: {
+      name: "adamw",
+      config: { lr: 3e-4, weight_decay: 0.1, betas: [0.9, 0.95], fused: true },
+      max_norm: 1.0,
+      scheduler: schedulerBlock("wsd", p.steps, 0.01, 0.1),
+    },
+    objective: { name: "AR", config: { ignore_index: -100, fused_linear_ce: true,
+                                       ce_chunk_size: 4096 } },
+    data,
+    checkpointing: { save_steps: p.saveSteps, resume: null },
+    wandb: { enabled: false, project: "pluggy" },
+    seed: 0,
+    run_name: name,
+  };
+}
+
+/* config files are addressed by name in the url, so keep them to what the
+ * server's _safe_name accepts rather than failing the save */
+const configSlug = s =>
+  (s || "").trim().replace(/\s+/g, "_").replace(/[^A-Za-z0-9_-]/g, "") || "untitled";
+
+function currentConfig() {
+  return mode() === "expert" ? trainConfigExpert() : trainConfigManaged();
+}
+function currentName() {
+  return configSlug(mode() === "expert" ? $("cfg_name").value : $("head_name").textContent);
+}
+
+/* per-arch tokenizer defaults: eos/pad are vocab-specific, and a mismatched
+ * pair fails in build_dataloader ("pad_token not in tokenizer vocab") */
+function applyArchDefaults(arch) {
+  $("d_tok").value = arch.tokenizer;
+  $("d_eos").value = arch.eos;
+  $("d_pad").value = arch.pad;
+  $("m_vocab").value = arch.vocab;
+  $("moe_row").style.display = arch.moe ? "" : "none";
+}
+
+/* ---------- launching ---------- */
+let GPUS_LOCAL = [];
+
+async function api(path, body) {
+  const resp = await fetch(path, body === undefined ? {} : {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data.error || resp.statusText);
+  return data;
+}
+
+async function saveConfig() {
+  const name = currentName();
+  await api("/api/train/config", { name, config: currentConfig() });
+  loadTrainMeta().catch(() => {});
+  return name;
+}
+
+async function launch(steps) {
+  const name = await saveConfig();
+  const started = await api("/api/train/run", { name, steps: steps || null });
+  const what = steps ? `benchmark (${steps} steps)` : "run";
+  msg(`${what} started on ${started.nproc} gpu(s) → ${started.log}`, true);
+  poll().catch(() => {});
+}
+
+async function loadTrainMeta() {
+  const meta = await api("/api/train/meta");
+  GPUS_LOCAL = meta.gpus || [];
+  $("launch").title = GPUS_LOCAL.length
+    ? `torchrun over ${GPUS_LOCAL.length} local gpu(s)` : "no local gpus visible";
+  const sel = $("cfg_load"), current = sel.value;
+  sel.innerHTML = '<option value="">Load saved config…</option>' +
+    meta.configs.map(c => `<option>${c}</option>`).join("");
+  sel.value = current;
+  refresh();
+}
+
+function localGpuNote() {
+  if (!GPUS_LOCAL.length) return "no local gpus visible — launching will fail";
+  const kinds = [...new Set(GPUS_LOCAL)];
+  return `launches here run on this machine: ${GPUS_LOCAL.length}× ${kinds.join(" + ")}`;
+}
+
+/* ---------- monitor ---------- */
+function drawPlot(metrics) {
+  const host = $("plot");
+  if (!metrics.length) {
+    if (host.dataset.state !== "empty") {
+      host.textContent = "No metrics yet — launch a run to stream loss, lr and tps here.";
+      host.dataset.state = "empty";
+    }
+    return;
+  }
+  host.dataset.state = "data";
+  const W = 1000, H = 300, L = 58, R = 14, T = 16, B = 30;
+  const steps = metrics.map(p => p.step);
+  const losses = metrics.map(p => p.loss);
+  const x0 = Math.min(...steps), x1 = Math.max(Math.max(...steps), x0 + 1);
+  let y0 = Math.min(...losses), y1 = Math.max(...losses);
+  const span = (y1 - y0) || Math.max(0.1, y1 * 0.1);
+  y0 -= span * 0.1; y1 += span * 0.1;
+  const px = s => L + (W - L - R) * (s - x0) / (x1 - x0);
+  const py = v => T + (H - T - B) * (1 - (v - y0) / (y1 - y0));
+  const line = metrics.map(p => `${px(p.step).toFixed(1)},${py(p.loss).toFixed(1)}`).join(" ");
+  const grid = [0, 0.25, 0.5, 0.75, 1].map(f => {
+    const v = y1 - (y1 - y0) * f, y = py(v).toFixed(1);
+    return `<line x1="${L}" y1="${y}" x2="${W - R}" y2="${y}" stroke="var(--rule-soft)"/>`
+         + `<text x="${L - 8}" y="${+y + 4}" text-anchor="end" font-size="13"`
+         + ` fill="var(--ink-3)">${v.toFixed(2)}</text>`;
+  }).join("");
+  host.innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:100%"
+       font-family="var(--mono)">${grid}
+       <polyline points="${line}" fill="none" stroke="var(--ink)" stroke-width="2"
+         stroke-linejoin="round" stroke-linecap="round"/>
+       <text x="${L}" y="${H - 8}" font-size="13" fill="var(--ink-3)">step ${x0}</text>
+       <text x="${W - R}" y="${H - 8}" font-size="13" fill="var(--ink-3)"
+         text-anchor="end">step ${x1}</text>
+     </svg>`;
+}
+
+async function poll() {
+  const s = await api("/api/train/status");
+  $("dot").className = "dot" + (s.running ? " on" : "");
+  $("stop").disabled = !s.running;
+
+  const bits = [];
+  if (s.running) bits.push(s.steps ? "benchmarking" : "running");
+  else if (s.exit_code !== null && s.exit_code !== undefined)
+    bits.push(s.exit_code === 0 ? "finished" : `stopped (exit ${s.exit_code})`);
+  else bits.push("idle");
+  const last = s.metrics.length ? s.metrics[s.metrics.length - 1] : null;
+  if (last) {
+    bits.push(`step ${last.step + 1}${s.total_steps ? " / " + s.total_steps : ""}`);
+    bits.push(`loss ${last.loss.toFixed(3)}`);
+    bits.push(`${compact(last.tps)} tok/s`);
+  } else if (s.running) {
+    bits.push("building model + tokenizing");
+  }
+  $("statline").textContent = bits.join("  ·  ");
+
+  if (s.log_tail) {
+    const log = $("log");
+    const pinned = log.scrollTop + log.clientHeight >= log.scrollHeight - 8;
+    log.textContent = s.log_tail;
+    if (pinned) log.scrollTop = log.scrollHeight;
+  }
+  drawPlot(s.metrics || []);
+}
+
+/* ---------- loading a saved config ---------- */
+function setSeg(id, val) {
+  $(id).querySelectorAll("button").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.val === val)));
+}
+
+function applyTrainConfig(cfg, name) {
+  const mc = cfg.model.config || {};
+  carried = {
+    top: dropKeys(cfg, FORM_TOP_KEYS),
+    model: dropKeys(mc, FORM_MODEL_KEYS),
+    modelBlock: dropKeys(cfg.model, ["name", "config"]),
+    data: dropKeys(cfg.data, FORM_DATA_KEYS),
+    checkpointing: dropKeys(cfg.checkpointing, ["save_steps", "resume"]),
+  };
+  $("m_name").value = cfg.model.name;
+  const arch = ARCHS.find(a => a.id === cfg.model.name);
+  if (arch) $("moe_row").style.display = arch.moe ? "" : "none";
+  $("m_layers").value = mc.num_layers;
+  $("m_heads").value = mc.num_heads;
+  $("m_kv_heads").value = mc.num_kv_heads;
+  $("m_emb").value = mc.emb_dim;
+  $("m_head_dim").value = mc.head_dim || 128;
+  $("m_vocab").value = mc.vocab_size;
+  $("m_ffn").value = mc.ffn_dim || "";
+  if (mc.moe_ffn_dim) {
+    $("m_moe_ffn").value = mc.moe_ffn_dim;
+    $("m_experts").value = mc.num_experts;
+    $("m_topk").value = mc.top_k;
+  }
+
+  $("p_dp").value = cfg.mesh.dp || 1;
+  setSeg("par_seg", cfg.parallelism || "ddp");
+  $("p_bucket").value = (cfg.ddp || {}).bucket_mb || 25;
+  $("p_compile").checked = cfg.compile !== false;
+
+  const opt = cfg.optimizer, oc = opt.config || {};
+  $("o_lr").value = oc.lr;
+  $("o_wd").value = oc.weight_decay;
+  $("o_b1").value = (oc.betas || [0.9, 0.95])[0];
+  $("o_b2").value = (oc.betas || [0.9, 0.95])[1];
+  $("o_fused").checked = !!oc.fused;
+  $("o_clip").value = opt.max_norm;
+  const sched = opt.scheduler || {};
+  setSeg("sched_seg", sched.type || "wsd");
+  $("s_steps").value = sched.total_steps;
+  $("s_warmup").value = sched.warmup_ratio;
+  if (sched.decay_ratio !== undefined) $("s_decay").value = sched.decay_ratio;
+
+  const jc = (cfg.objective || {}).config || {};
+  $("j_ignore").value = jc.ignore_index;
+  $("j_chunk").value = jc.ce_chunk_size;
+  $("j_fused").checked = jc.fused_linear_ce !== false;
+
+  const d = cfg.data;
+  // the expert Data card edits one source; a mixture keeps its heaviest one
+  // here and would have to be re-mixed in managed mode
+  const sources = d.sources || [d];
+  const heaviest = sources.reduce((a, b) => ((+b.weight || 0) > (+a.weight || 0) ? b : a));
+  $("d_name").value = heaviest.name || heaviest.data_files || "";
+  $("d_config").value = heaviest.config || d.config || "";
+  $("d_split").value = heaviest.split || d.split || "train";
+  $("d_text").value = heaviest.text_field || d.text_field || "text";
+  $("d_tok").value = d.tokenizer;
+  $("d_eos").value = d.eos_token;
+  $("d_pad").value = d.pad_token;
+  $("d_seq").value = d.seq_len;
+  $("d_gbs").value = d.global_batch_size;
+  $("d_mbs").value = d.micro_batch_size;
+  $("d_workers").value = d.num_workers;
+  $("d_seed").value = d.seed !== undefined ? d.seed : 42;
+  $("d_shuffle").value = heaviest.shuffle_buffer || d.shuffle_buffer || 1000;
+  $("d_pack").value = heaviest.pack_batch || d.pack_batch || 1000;
+
+  const ck = cfg.checkpointing || {};
+  $("r_save").value = ck.save_steps || 6000;
+  $("r_resume").value = ck.resume || "";
+  const wb = cfg.wandb || {};
+  $("r_wandb").checked = !!wb.enabled;
+  $("r_project").value = wb.project || "pluggy";
+  $("r_seed").value = cfg.seed || 0;
+  $("r_name").value = cfg.run_name || name;
+  $("cfg_name").value = name;
+  setHeadName(cfg.run_name || name);
+
+  setSeg("mode_seg", "expert");
+  setMode("expert");
+  const extras = carriedKeys();
+  if (d.sources && d.sources.length > 1) {
+    msg(`loaded ${name} — its ${d.sources.length}-source mixture is edited in the json, `
+      + `expert shows the heaviest source only`, false);
+  } else if (extras.length) {
+    msg(`loaded ${name} — carrying ${extras.join(", ")} through unchanged`, true);
+  } else {
+    msg("loaded " + name, true);
+  }
 }
 
 /* ---------- mode ---------- */
@@ -1091,7 +1591,14 @@ function setMode(next) {
   $("mode_expert").style.display = managedOn ? "none" : "";
   $("bench").style.display = managedOn ? "none" : "";
   $("save").style.display = managedOn ? "none" : "";
-  $("launch").textContent = managedOn ? "Rent GPUs + launch" : "Launch run";
+  // both modes launch the same way, on this machine's gpus -- the managed
+  // Estimate card prices the equivalent rental, it doesn't rent anything
+  $("launch").textContent = "Launch run";
+  $("launch").title = GPUS_LOCAL.length
+    ? `torchrun over ${GPUS_LOCAL.length} local gpu(s)` : "";
+  // the title is the run name in both modes, so entering expert adopts it rather
+  // than silently renaming the run back to whatever r_name last held
+  if (!managedOn) syncNameToExpertFields();
   try { localStorage.setItem("pluggy-train-mode", next); } catch (e) { /* session-only */ }
   refresh();
   if (window.pluggyUI) window.pluggyUI.rebuildSectionNav();
@@ -1112,8 +1619,23 @@ function msg(text, ok) {
   $("msg").textContent = text;
   $("msg").className = "msg " + (ok ? "ok" : "err");
 }
-const notWired = () => msg("not wired up yet — ui only", false);
-["launch", "save", "bench", "stop"].forEach(id => $(id).onclick = notWired);
+const fail = e => msg(e.message, false);
+
+$("save").onclick = () =>
+  saveConfig().then(n => msg("saved configs/" + n + ".json", true)).catch(fail);
+$("launch").onclick = () => launch(null).catch(fail);
+// benchmark mode is train.py --steps: a fixed-step tps measurement that never
+// checkpoints, and the only way fsdp2 may run today
+$("bench").onclick = () => launch(20).catch(fail);
+$("stop").onclick = () =>
+  api("/api/train/stop", {}).then(() => msg("stop requested", true)).catch(fail);
+$("cfg_load").onchange = async () => {
+  const name = $("cfg_load").value;
+  if (!name) return;
+  try {
+    applyTrainConfig(await api("/api/train/config/" + name), name);
+  } catch (e) { fail(e); }
+};
 $("to_expert").onclick = openInExpert;
 
 $("pick_x").onclick = () => $("pick_modal").close();
@@ -1125,14 +1647,17 @@ document.querySelectorAll("input, select").forEach(el => {
   el.addEventListener("change", refresh);
 });
 
-// Make the top run name editable and update UI when changed
+// The big title is the run name. In expert mode the Run name / Config name inputs
+// are the source of truth for the config, so push the edit down into them.
 const nameEl = $("head_name");
-nameEl.addEventListener("input", () => {
+function nameEdited() {
+  if (mode() === "expert") syncNameToExpertFields();
   refresh();
-});
+}
+nameEl.addEventListener("input", nameEdited);
 nameEl.addEventListener("blur", () => {
   if (!nameEl.textContent.trim()) nameEl.textContent = "untitled";
-  refresh();
+  nameEdited();
 });
 nameEl.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
@@ -1152,13 +1677,30 @@ function updateCustomModelArea() {
   }
 }
 
-$("m_name").addEventListener("change", updateCustomModelArea);
+$("m_name").addEventListener("change", () => {
+  updateCustomModelArea();
+  // a different arch means a different tokenizer, vocab and eos/pad pair --
+  // keeping the old ones is the fastest way to a run that dies in the loader.
+  // model-level carried keys are arch-specific too (olmo3's sliding_window is
+  // not a qwen3 kwarg), so they go with them.
+  carried.model = {};
+  carried.modelBlock = {};
+  const arch = ARCHS.find(a => a.id === $("m_name").value);
+  if (arch) applyArchDefaults(arch);
+  refresh();
+});
 updateCustomModelArea(); // initial state
 let saved = "managed";
 try { saved = localStorage.getItem("pluggy-train-mode") || "managed"; } catch (e) { /* default */ }
 document.querySelectorAll("#mode_seg button").forEach(b =>
   b.setAttribute("aria-pressed", String(b.dataset.val === saved)));
 setMode(saved);
+
+loadTrainMeta().catch(fail);
+// a run outlives the page: poll from load so a reload reattaches to whatever
+// the server is already running instead of showing "idle"
+poll().catch(() => {});
+setInterval(() => poll().catch(() => {}), 2000);
 </script>
 </body>
 </html>
